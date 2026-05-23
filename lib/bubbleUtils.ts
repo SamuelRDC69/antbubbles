@@ -42,7 +42,7 @@ export function computeRadii(
   let scaledMax = MAX_RADIUS
   if (containerWidth > 0 && containerHeight > 0) {
     const areaPerToken = (containerWidth * containerHeight) / tokens.length
-    const refRadius    = Math.sqrt(areaPerToken * 0.22 / Math.PI)
+    const refRadius    = Math.sqrt(areaPerToken * 0.40 / Math.PI)
     const scale        = Math.min(1, Math.max(0.22, refRadius / 55))
     scaledMin = Math.max(14, Math.round(MIN_RADIUS * scale))
     scaledMax = Math.max(scaledMin + 10, Math.round(MAX_RADIUS * scale))
