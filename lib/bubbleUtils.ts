@@ -24,9 +24,17 @@ export function getMetricValue(token: TokenBubbleData, mode: DisplayMode): numbe
   }
 }
 
-export function computeRadii(tokens: TokenBubbleData[], mode: DisplayMode): Map<string, number> {
+// containerWidth lets us scale bubbles down so they fit on small screens without
+// constantly overlapping — the main cause of erratic mobile collision bouncing.
+export function computeRadii(tokens: TokenBubbleData[], mode: DisplayMode, containerWidth = 0): Map<string, number> {
   const radii = new Map<string, number>()
   if (tokens.length === 0) return radii
+
+  // On narrow viewports (phones) a 140px bubble is ~75% of screen width and dozens
+  // of them can't pack without constant collision, so cap the max proportionally.
+  const scaledMax = containerWidth > 0
+    ? Math.min(MAX_RADIUS, Math.max(MIN_RADIUS + 10, containerWidth * 0.13))
+    : MAX_RADIUS
 
   // Bubble size is always driven by |change24| so the layout stays stable
   // when switching display modes — only the label inside the bubble changes.
@@ -43,7 +51,7 @@ export function computeRadii(tokens: TokenBubbleData[], mode: DisplayMode): Map<
   for (let i = 0; i < tokens.length; i++) {
     const v    = values[i]
     const norm = v > 0 ? Math.sqrt(v / max) : 0.05
-    radii.set(tokens[i].id, MIN_RADIUS + norm * (MAX_RADIUS - MIN_RADIUS))
+    radii.set(tokens[i].id, MIN_RADIUS + norm * (scaledMax - MIN_RADIUS))
   }
   return radii
 }

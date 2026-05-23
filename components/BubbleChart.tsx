@@ -206,7 +206,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
     if (dimensions.width === 0 || tokens.length === 0) return
 
     const { width, height } = dimensions
-    const radii = computeRadii(tokens, displayMode)
+    const radii = computeRadii(tokens, displayMode, width)
 
     const newKey       = tokens.map(t => t.id).sort().join(',')
     const isNewTokenSet = newKey !== tokenIdsRef.current
@@ -243,7 +243,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
         .force('mouseSpring', buildMouseSpringForce(nodesRef, dragRef, mouseTargetRef))
         .force('collide',     buildHardCollideForce(nodesRef, dimRef))
         .force('boundary',    buildBoundaryForce(nodesRef, dimRef))
-        .force('wander',      buildWanderForce(nodesRef, dragRef))
+        .force('wander',      buildWanderForce(nodesRef, dragRef, dimRef))
 
       // First ever load has no previous positions — start at high energy so
       // bubbles spread from the centre. All other cases keep current energy.
@@ -254,8 +254,8 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       // If canvas grew significantly (e.g. window resize), re-scatter nodes into new space
       const prev = prevDimRef.current
       const bigResize = prev.width > 0 && (
-        width  / prev.width  > 1.4 ||
-        height / prev.height > 1.4
+        width  / prev.width  > 1.4 || height / prev.height > 1.4 ||
+        width  / prev.width  < 0.7 || height / prev.height < 0.7
       )
       if (bigResize) {
         for (const node of nodesRef.current) {
@@ -666,12 +666,20 @@ function buildBoundaryForce(
 function buildWanderForce(
   nodesRef: React.RefObject<SimNode[]>,
   dragRef:  React.RefObject<SimNode | null>,
+  dimRef:   React.RefObject<{ width: number; height: number }>,
 ) {
-  const ANGLE_DRIFT = 0.12
-  const IMPULSE     = 0.18
-  const MAX_SPEED   = 2.2
+  const ANGLE_DRIFT  = 0.12
+  const BASE_IMPULSE = 0.18
+  const BASE_SPEED   = 2.2
 
   return function wanderForce() {
+    const { width } = dimRef.current!
+    // Scale down energy on narrow viewports so bubbles don't thrash in tight spaces.
+    // 900px is the reference "desktop" width — below that energy tapers off.
+    const scale    = Math.min(1, Math.max(0.35, width / 900))
+    const IMPULSE  = BASE_IMPULSE * scale
+    const MAX_SPEED = Math.max(0.6, BASE_SPEED * scale)
+
     const dragged = dragRef.current
     for (const n of nodesRef.current! as WanderNode[]) {
       if (n === dragged) continue
