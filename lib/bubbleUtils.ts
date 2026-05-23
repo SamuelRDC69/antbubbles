@@ -55,8 +55,22 @@ export function computeRadii(
     ? 1 / 3
     : 1 / 2
 
+  // Normalize against the 95th-percentile value rather than the raw max.
+  // When one token has an extreme outlier value (e.g. $13B mcap vs $10K for
+  // everyone else), using the max as the reference collapses all other norms
+  // near zero — even cube root can't fix a 1,000,000× ratio.
+  // Capping at p95 means the top ~5% of tokens all show at maximum size,
+  // while the remaining 95% spread across the full size range visibly.
+  const posVals  = values.filter(v => v > 0).sort((a, b) => a - b)
+  const p95      = posVals.length > 0
+    ? posVals[Math.max(0, Math.floor(posVals.length * 0.95) - 1)]
+    : maxVal
+  const normRef  = Math.max(p95, 1)
+
   // Floor of 0.05 keeps zero-value tokens visible as small bubbles.
-  const norms = values.map(v => maxVal > 0 && v > 0 ? Math.pow(v / maxVal, exp) : 0.05)
+  const norms = values.map(v =>
+    v > 0 ? Math.min(1, Math.pow(Math.min(v, normRef) / normRef, exp)) : 0.05
+  )
 
   // Exact area formula — solve for scaledMin so Σ π·r_i² = fillTarget×W×H exactly.
   // With scaledMax = ratio×scaledMin and r = ratio−1:
