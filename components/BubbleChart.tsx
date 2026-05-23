@@ -70,22 +70,23 @@ function drawBubble(
   isDimmed:    boolean,
   displayMode: DisplayMode,
 ) {
-  // Round positions and radius to integer pixels.
-  // node.x/y are sub-pixel floats that change every simulation tick; node.radius
-  // tweens continuously at 8%/tick. Passing floats to fillText / drawImage causes
-  // the browser's pixel-snapping to shift text by ±1px between frames — visible
-  // as jitter. Integer inputs produce stable pixel-aligned output every frame.
-  const { x: rawX = 0, y: rawY = 0, radius, symbol } = node
-  const x = Math.round(rawX)
-  const y = Math.round(rawY)
+  const { x = 0, y = 0, radius, symbol } = node
   const fill  = bubbleFillColorForMode(node, displayMode)
   const ring  = ringColorForMode(node, displayMode)
   const glow  = glowColorForMode(node, displayMode)
 
-  // Visual-only scale: bubbles lift slightly on hover to signal interactivity
-  // Physics radius (node.radius) is unchanged — only drawing radius grows
-  const drawR = Math.round(isDragging ? radius : isHovered ? radius * 1.07 : radius)
-  const ringW = Math.max(2, drawR * 0.07)
+  // Two coordinate sets:
+  //   x, y, drawR — raw floats used for arcs/paths.  Canvas anti-aliases arcs
+  //                 at sub-pixel precision, so floats give perfectly smooth movement.
+  //   tx, ty, drawRi — rounded integers used ONLY for fillText / drawImage.
+  //                 Text rendering snaps to pixel boundaries regardless of the
+  //                 float input, so passing floats causes ±1px frame-to-frame
+  //                 jumps (jitter). Integers keep content pixel-stable.
+  const drawR  = isDragging ? radius : isHovered ? radius * 1.07 : radius
+  const drawRi = Math.round(drawR)   // integer copy for text layout only
+  const tx     = Math.round(x)       // integer copy for text/image x
+  const ty     = Math.round(y)       // integer copy for text/image y
+  const ringW  = Math.max(2, drawR * 0.07)
   const alpha = isDimmed ? 0.18 : 1
 
   ctx.save()
@@ -94,7 +95,7 @@ function drawBubble(
   // Outer pulse ring on hover — a second, wider translucent ring signals "clickable"
   if (isHovered && !isDimmed) {
     ctx.beginPath()
-    ctx.arc(x, y, drawR + 5, 0, Math.PI * 2)
+    ctx.arc(x, y, drawR + 5, 0, Math.PI * 2)   // float coords — smooth arc
     ctx.strokeStyle = ring + '50'
     ctx.lineWidth   = 1.5
     ctx.shadowBlur  = 0
@@ -107,7 +108,7 @@ function drawBubble(
 
   // Fill
   ctx.beginPath()
-  ctx.arc(x, y, drawR, 0, Math.PI * 2)
+  ctx.arc(x, y, drawR, 0, Math.PI * 2)          // float coords — smooth arc
   ctx.fillStyle = fill
   ctx.fill()
 
@@ -119,7 +120,7 @@ function drawBubble(
 
   // Clip to interior for logo + text
   ctx.beginPath()
-  ctx.arc(x, y, drawR - ringW / 2, 0, Math.PI * 2)
+  ctx.arc(x, y, drawR - ringW / 2, 0, Math.PI * 2)   // float coords — smooth arc
   ctx.clip()
 
   // ── Three content tiers based on available radius ────────────────────────
@@ -127,34 +128,35 @@ function drawBubble(
   // Small (16-27px): logo + symbol name
   // Full  (≥ 28px): logo + symbol + metric value  (original behaviour)
 
-  if (drawR < 16) {
+  if (drawRi < 16) {
     // Tiny bubble — logo centered if available, otherwise 2-letter abbreviation
     ctx.globalAlpha = isDimmed ? 0.18 : 1
     if (img) {
-      const logoSize = Math.round(drawR * 1.1)  // slightly larger than radius looks good inside the clip
-      ctx.drawImage(img, Math.round(x - logoSize / 2), Math.round(y - logoSize / 2), logoSize, logoSize)
+      const logoSize = Math.round(drawRi * 1.1)
+      ctx.drawImage(img, tx - (logoSize >> 1), ty - (logoSize >> 1), logoSize, logoSize)
     } else {
-      ctx.font         = `700 ${Math.max(6, Math.round(drawR * 0.55))}px Inter, system-ui, sans-serif`
+      ctx.font         = `700 ${Math.max(6, Math.round(drawRi * 0.55))}px Inter, system-ui, sans-serif`
       ctx.fillStyle    = '#ffffff'
       ctx.textAlign    = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillText(symbol.slice(0, 2), x, y)
+      ctx.fillText(symbol.slice(0, 2), tx, ty)
     }
   } else {
-    const symFontSize = Math.round(Math.max(9, Math.min(drawR * 0.33, 20)))
-    const valFontSize = Math.round(Math.max(7, Math.min(drawR * 0.22, 13)))
-    const logoH       = Math.round(drawR * 0.42)
-    const hasLogo     = !!img && drawR >= 16
+    // Text layout uses drawRi (integer) so font sizes and positions are stable
+    const symFontSize = Math.round(Math.max(9, Math.min(drawRi * 0.33, 20)))
+    const valFontSize = Math.round(Math.max(7, Math.min(drawRi * 0.22, 13)))
+    const logoH       = Math.round(drawRi * 0.42)
+    const hasLogo     = !!img && drawRi >= 16
 
-    const showValue = drawR >= 28
+    const showValue = drawRi >= 28
     const totalH = hasLogo
       ? logoH + symFontSize * 1.15 + (showValue ? valFontSize * 1.1 : 0)
       : symFontSize * 1.15 + (showValue ? valFontSize * 1.1 : 0)
-    let cursorY = Math.round(y - totalH / 2)
+    let cursorY = Math.round(ty - totalH / 2)
 
     if (hasLogo) {
       ctx.globalAlpha = isDimmed ? 0.18 : 1
-      ctx.drawImage(img!, Math.round(x - logoH / 2), cursorY, logoH, logoH)
+      ctx.drawImage(img!, tx - (logoH >> 1), cursorY, logoH, logoH)
       cursorY = Math.round(cursorY + logoH + symFontSize * 0.1)
     }
 
@@ -164,7 +166,7 @@ function drawBubble(
     ctx.textAlign    = 'center'
     ctx.textBaseline = 'top'
     const displaySym = symbol.length > 7 ? symbol.slice(0, 6) + '…' : symbol
-    ctx.fillText(displaySym, x, cursorY)
+    ctx.fillText(displaySym, tx, cursorY)
     cursorY = Math.round(cursorY + symFontSize * 1.15)
 
     if (showValue) {
@@ -173,7 +175,7 @@ function drawBubble(
       ctx.fillStyle    = metricTextColor(node, displayMode)
       ctx.textAlign    = 'center'
       ctx.textBaseline = 'top'
-      ctx.fillText(formatMetricValue(node, displayMode), x, cursorY)
+      ctx.fillText(formatMetricValue(node, displayMode), tx, cursorY)
     }
   }
 
@@ -264,16 +266,22 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       nodesRef.current = nodes
       simRef.current?.stop()
 
+      // velocityDecay: higher on mobile (0.6) to damp oscillation in tight spaces.
+      // .stop(): disable D3's internal RAF timer — we tick manually inside our
+      // own RAF draw loop so physics and rendering are always in sync (one tick
+      // per drawn frame, no stale-position draws or double-tick frames).
+      const isMobileSim = width < 600
       simRef.current = forceSimulation(nodes)
         .alphaDecay(0)
         .alphaTarget(0.3)
-        .velocityDecay(0.45)
+        .velocityDecay(isMobileSim ? 0.60 : 0.45)
         .force('radiusTween', buildRadiusTweenForce(nodesRef))
         .force('mouseSpring', buildMouseSpringForce(nodesRef, dragRef, mouseTargetRef))
         .force('collide',     buildHardCollideForce(nodesRef, dimRef))
         .force('boundary',    buildBoundaryForce(nodesRef, dimRef))
         .force('center',      buildCenterForce(nodesRef, dimRef))
         .force('wander',      buildWanderForce(nodesRef, dragRef, dimRef))
+        .stop()  // manual RAF ticking below
 
       // First ever load has no previous positions — start at high energy so
       // bubbles spread from the centre. All other cases keep current energy.
@@ -346,6 +354,12 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
     const draw = () => {
       if (!running) return
       if (width === 0) { rafRef.current = requestAnimationFrame(draw); return }
+
+      // Advance physics exactly one step per rendered frame.
+      // D3's simulation is stopped (.stop() on creation) so it never fires its
+      // own RAF callback — this call is the sole tick source. Result: one tick
+      // per draw, no stale-position frames, no double-tick frames = smooth motion.
+      simRef.current?.tick()
 
       ctx.fillStyle = '#000000'
       ctx.fillRect(0, 0, width, height)
@@ -619,13 +633,15 @@ function buildHardCollideForce(
   nodesRef: React.RefObject<SimNode[]>,
   dimRef:   React.RefObject<{ width: number; height: number }>,
 ) {
-  const GAP        = 4   // px gap between bubble rings (prevents visual ring merging)
-  const ITERATIONS = 8   // more iterations → cleaner separation each tick
-  const VEL_SCALE  = 0.25
+  const GAP       = 4     // px gap between bubble rings (prevents visual ring merging)
+  const VEL_SCALE = 0.25
 
   return function hardCollideForce() {
     const nodes             = nodesRef.current!
     const { width, height } = dimRef.current!
+    // Fewer iterations on mobile: less correction per tick reduces micro-oscillation
+    // in tight spaces, and cuts CPU so the GPU can maintain 60fps.
+    const ITERATIONS = width < 600 ? 3 : 8
 
     for (let iter = 0; iter < ITERATIONS; iter++) {
       for (let i = 0; i < nodes.length; i++) {
