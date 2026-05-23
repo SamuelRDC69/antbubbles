@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
     const poolsRes = await fetch(`${chain.apiBase}/swap/pools`, {
       next:   { revalidate: 5 },
       signal: AbortSignal.timeout(10_000),
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
     })
     if (!poolsRes.ok) throw new Error('pools fetch failed')
     const allPools: AlcorPoolFull[] = await poolsRes.json()

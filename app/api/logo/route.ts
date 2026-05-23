@@ -15,8 +15,9 @@ export async function GET(req: NextRequest) {
 
   try {
     const res = await fetch(url, {
-      next: { revalidate: 86400 }, // Cache logos for 24 hours server-side
-      headers: { 'User-Agent': 'AntBubbles/1.0' },
+      signal: AbortSignal.timeout(8_000),
+      next: { revalidate: 86400 },
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
     })
 
     if (!res.ok) {

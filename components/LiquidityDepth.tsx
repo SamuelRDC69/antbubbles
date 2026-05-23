@@ -215,10 +215,42 @@ export default function LiquidityDepth({
     setError(false)
     const ctrl = new AbortController()
 
-    fetch(`/api/pool-depth?chain=${chain}&pool_id=${poolId}`, { signal: ctrl.signal })
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false) })
-      .catch(e => { if (!ctrl.signal.aborted) { setError(true); setLoading(false) } })
+    // Parallel race: server cache vs direct Alcor (same pattern as charts)
+    const base = `https://${chain}.alcor.exchange/api/v2/swap/pools/${poolId}`
+    const parseDepth = (pool: Record<string,unknown>, posRaw: unknown) => {
+      const positions = (Array.isArray(posRaw) ? posRaw : (posRaw as Record<string,unknown>)?.rows ?? []) as Record<string,unknown>[]
+      return {
+        currentTick: typeof pool?.tick === 'number' ? pool.tick : 0,
+        tickSpacing:  typeof pool?.tickSpacing === 'number' ? pool.tickSpacing : 1,
+        tokenA: pool?.tokenA ?? null,
+        tokenB: pool?.tokenB ?? null,
+        positions: positions
+          .map((p) => ({
+            tickLower: Number(p.tickLower ?? p.tick_lower ?? 0),
+            tickUpper: Number(p.tickUpper ?? p.tick_upper ?? 0),
+            liquidity: String(p.liquidity ?? '0'),
+          }))
+          .filter(p => p.tickUpper > p.tickLower),
+      }
+    }
+
+    const serverFetch = fetch(`/api/pool-depth?chain=${chain}&pool_id=${poolId}`, { signal: ctrl.signal })
+      .then(r => r.ok ? r.json() : null).catch(() => null)
+
+    const alcorFetch = Promise.all([
+      fetch(base,                { signal: ctrl.signal }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${base}/positions`, { signal: ctrl.signal }).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([pool, pos]) => pool ? parseDepth(pool as Record<string,unknown>, pos) : null)
+      .catch(() => null)
+
+    Promise.race([
+      serverFetch.then(d  => d  ?? alcorFetch),
+      alcorFetch.then(d   => d  ?? serverFetch),
+    ]).then(async result => {
+      const d = result instanceof Promise ? await result : result
+      if (d) { setData(d); setLoading(false) }
+      else { setError(true); setLoading(false) }
+    }).catch(e => { if (!ctrl.signal.aborted) { setError(true); setLoading(false) } })
 
     return () => ctrl.abort()
   }, [poolId, chain])
