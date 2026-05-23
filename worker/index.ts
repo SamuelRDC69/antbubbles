@@ -281,12 +281,12 @@ async function warmChartsForChain(chain: ChainConfig, tokens: TokenBubbleData[])
   const from = String(roundHour(Date.now() - LINE_WINDOW_MS))
   const systemTokenId = `${chain.systemToken.toLowerCase()}-${chain.systemContract}`
 
-  // Top 30 by 24h volume — these are the most-clicked bubbles
-  const top30 = [...tokens]
+  // Top 10 by 24h volume — keeps each warm cycle under 5 min, avoids rate-limiting
+  const top10 = [...tokens]
     .sort((a, b) => (b.volume24usd ?? 0) - (a.volume24usd ?? 0))
-    .slice(0, 30)
+    .slice(0, 10)   // top 10 only — keeps each warm cycle under 5 min
 
-  for (const token of top30) {
+  for (const token of top10) {
     const defaultPool = token.pools?.find(p => p.counterpartId === systemTokenId)
       ?? token.pools?.[0]
 
@@ -296,8 +296,8 @@ async function warmChartsForChain(chain: ChainConfig, tokens: TokenBubbleData[])
       await warmKlines(chain, token.ticker_id, '1D', from, now)
     }
 
-    // Small delay between requests to be a good Alcor citizen
-    await new Promise(r => setTimeout(r, 200))
+    // 2 s between requests — avoids Alcor rate-limiting that causes timeouts
+    await new Promise(r => setTimeout(r, 2_000))
   }
 }
 

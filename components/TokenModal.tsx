@@ -736,7 +736,9 @@ export default function TokenModal({ token, chain, onClose }: Props) {
       return globalHit
     }
 
-    // Helper: normalise raw candle array (pool candles use string OHLC)
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    // Pool candles return OHLC as strings — normalise to numbers
     const normalise = (raw: Candle[]): Candle[] =>
       source === 'lp'
         ? raw.map(c => ({
@@ -749,21 +751,20 @@ export default function TokenModal({ token, chain, onClose }: Props) {
           }))
         : raw
 
-    // Build the direct Alcor URL as a browser-side fallback (Alcor blocks datacenter
-    // IPs but allows browser requests with CORS: access-control-allow-origin: *)
-    const alcorUrl = (() => {
-      const fromParam = view === 'line'
-        ? roundHour(Date.now() - LINE_WINDOW[range])
-        : candleFrom
-      const toParam   = view === 'line' ? roundHour(Date.now()) : undefined
+    // Direct Alcor URL — browser requests aren't blocked (CORS: allow-origin: *)
+    // Alcor blocks datacenter IPs (Vercel/Railway) so we always go direct from browser.
+    const fromParam = view === 'line' ? roundHour(Date.now() - LINE_WINDOW[range]) : candleFrom
+    const toParam   = view === 'line' ? roundHour(Date.now()) : undefined
+    const alcorUrl: string | null = (() => {
       if (source === 'lp' && pool) {
         const u = new URL(`https://${chain.id}.alcor.exchange/api/v2/swap/pools/${pool.id}/candles`)
         u.searchParams.set('resolution', res)
         u.searchParams.set('from', String(fromParam))
-        if (toParam) u.searchParams.set('to', String(toParam))
+        if (toParam)       u.searchParams.set('to',      String(toParam))
         if (pool.reversed) u.searchParams.set('reverse', 'true')
         return u.toString()
-      } else if (source === 'spot' && token.ticker_id) {
+      }
+      if (source === 'spot' && token.ticker_id) {
         const u = new URL(`https://${chain.id}.alcor.exchange/api/v2/tickers/${encodeURIComponent(token.ticker_id)}/charts`)
         u.searchParams.set('resolution', res)
         u.searchParams.set('from', String(fromParam))
@@ -773,50 +774,40 @@ export default function TokenModal({ token, chain, onClose }: Props) {
       return null
     })()
 
-    try {
-      const r = await fetch(url, { signal })
-      const d = await r.json()
-      const raw: Candle[] = Array.isArray(d) ? d : []
+    // ── Parallel race: Redis cache vs direct Alcor browser fetch ─────────────
+    // Both start at exactly the same time.
+    // Redis hit  → resolves in ~50 ms (instant chart).
+    // Redis miss → server returns [] immediately, Alcor browser fetch wins
+    //              (typically 2–5 s from a residential IP).
+    // This is the same pattern DEX Screener uses: serve from own cache when warm,
+    // go direct to the data source when cold — zero wasted wait time either way.
 
-      // If server returned empty (Redis miss + Alcor blocked from datacenter),
-      // fall back to fetching Alcor directly from the browser — CORS is open.
-      if (raw.length === 0 && alcorUrl) {
-        const r2 = await fetch(alcorUrl, { signal })
-        if (r2.ok) {
-          const d2 = await r2.json()
-          const raw2: Candle[] = Array.isArray(d2) ? d2 : []
-          if (raw2.length > 0) {
-            const result2 = normalise(raw2)
-            setChart(url, result2)
-            cacheRef.current.set(cacheKey, result2)
-            return result2
-          }
-        }
-      }
+    const fetchWithData = (p: Promise<Response>): Promise<Candle[] | null> =>
+      p.then(r => r.ok ? r.json() : null)
+       .then((d: unknown) => {
+         const raw = Array.isArray(d) ? d as Candle[] : []
+         return raw.length > 0 ? normalise(raw) : null
+       })
+       .catch(() => null)
 
-      const result = normalise(raw)
-      // Store in global cache so re-opening this token is instant
-      setChart(url, result)
-      cacheRef.current.set(cacheKey, result)
-      return result
-    } catch {
-      if (signal.aborted) throw signal
-      // Last-ditch direct Alcor fetch (server completely unreachable)
-      if (alcorUrl) {
-        try {
-          const r2 = await fetch(alcorUrl)
-          if (r2.ok) {
-            const d2 = await r2.json()
-            const raw2: Candle[] = Array.isArray(d2) ? d2 : []
-            const result2 = normalise(raw2)
-            setChart(url, result2)
-            cacheRef.current.set(cacheKey, result2)
-            return result2
-          }
-        } catch { /* non-fatal */ }
+    const serverPromise = fetchWithData(fetch(url, { signal }))
+    const alcorPromise  = alcorUrl ? fetchWithData(fetch(alcorUrl, { signal })) : Promise.resolve(null)
+
+    // Resolve as soon as either returns data; fall back to the other if one is null
+    const result = await new Promise<Candle[]>((resolve) => {
+      let settled = 0
+      const tryResolve = (data: Candle[] | null, other: Promise<Candle[] | null>) => {
+        if (data && data.length > 0) { resolve(data); return }
+        if (++settled === 2) resolve([])
+        else other.then(d => { if (d && d.length > 0) resolve(d); else if (++settled >= 2) resolve([]) })
       }
-      return []
-    }
+      serverPromise.then(d => tryResolve(d, alcorPromise))
+      alcorPromise.then(d  => tryResolve(d, serverPromise))
+    })
+
+    setChart(url, result)
+    cacheRef.current.set(cacheKey, result)
+    return result
   }, [token, chain])
 
   // Clear cache only when the token changes (not on range/view switches)
@@ -870,8 +861,8 @@ export default function TokenModal({ token, chain, onClose }: Props) {
         return
       }
 
-      // Direct Alcor URL as browser-side fallback (datacenter IPs are blocked)
-      const alcorFallback = defaultPool
+      // Build direct Alcor URL — same parallel-race strategy as fetchChart
+      const alcorDirect: string | null = defaultPool
         ? (() => {
             const u = new URL(`https://${chain.id}.alcor.exchange/api/v2/swap/pools/${defaultPool.id}/candles`)
             u.searchParams.set('resolution', resolution)
@@ -901,24 +892,26 @@ export default function TokenModal({ token, chain, onClose }: Props) {
             }))
           : raw
 
-      fetch(url, { signal: ctrl.signal })
-        .then(res => res.json())
-        .then(async (d: unknown) => {
-          let raw = Array.isArray(d) ? d : []
-          // Fallback: server returned empty → fetch directly from Alcor in browser
-          if (raw.length === 0 && alcorFallback) {
-            try {
-              const r2 = await fetch(alcorFallback, { signal: ctrl.signal })
-              if (r2.ok) raw = await r2.json().then(x => Array.isArray(x) ? x : []).catch(() => [])
-            } catch { /* non-fatal */ }
-          }
-          const candles = normCandles(raw as Candle[])
-          if (candles.length >= 2) {
-            const pct = (candles[candles.length-1].close - candles[0].close) / candles[0].close * 100
-            setPerfs(prev => ({ ...prev, [r]: pct }))
-          }
-        })
-        .catch(() => {})
+      const getCandles = (fetchUrl: string) =>
+        fetch(fetchUrl, { signal: ctrl.signal })
+          .then(res => res.ok ? res.json() : [])
+          .then((d: unknown) => { const raw = Array.isArray(d) ? d as Candle[] : []; return raw.length > 0 ? normCandles(raw) : null })
+          .catch(() => null)
+
+      // Fire both simultaneously — use the first one that returns data
+      const serverP = getCandles(url)
+      const alcorP  = alcorDirect ? getCandles(alcorDirect) : Promise.resolve(null)
+
+      Promise.race([
+        serverP.then(d => d ?? alcorP),
+        alcorP.then(d  => d ?? serverP),
+      ]).then(async result => {
+        const candles = result instanceof Promise ? (await result ?? []) : (result ?? [])
+        if (candles.length >= 2) {
+          const pct = (candles[candles.length-1].close - candles[0].close) / candles[0].close * 100
+          setPerfs(prev => ({ ...prev, [r]: pct }))
+        }
+      }).catch(() => {})
     })
 
     return () => ctrl.abort()
