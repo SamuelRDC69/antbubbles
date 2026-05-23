@@ -75,40 +75,37 @@ function drawBubble(
   const ring  = ringColorForMode(node, displayMode)
   const glow  = glowColorForMode(node, displayMode)
 
-  // Two coordinate sets:
-  //   x, y, drawR — raw floats used for arcs/paths.  Canvas anti-aliases arcs
-  //                 at sub-pixel precision, so floats give perfectly smooth movement.
-  //   tx, ty, drawRi — rounded integers used ONLY for fillText / drawImage.
-  //                 Text rendering snaps to pixel boundaries regardless of the
-  //                 float input, so passing floats causes ±1px frame-to-frame
-  //                 jumps (jitter). Integers keep content pixel-stable.
+  // drawR: float for smooth anti-aliased arcs.
+  // drawRi: integer for all text/image layout so sizes are frame-stable.
+  // ctx.translate(x, y) puts the bubble centre at (0,0) in local space —
+  // every subsequent draw call uses offsets relative to centre, so the clip
+  // path and all content are always in perfect alignment no matter the
+  // sub-pixel position of the bubble. This eliminates the ±0.5 px drift that
+  // made logos/text appear to shift inside the ring each frame.
   const drawR  = isDragging ? radius : isHovered ? radius * 1.07 : radius
-  const drawRi = Math.round(drawR)   // integer copy for text layout only
-  const tx     = Math.round(x)       // integer copy for text/image x
-  const ty     = Math.round(y)       // integer copy for text/image y
+  const drawRi = Math.round(drawR)
   const ringW  = Math.max(2, drawR * 0.07)
-  const alpha = isDimmed ? 0.18 : 1
+  const alpha  = isDimmed ? 0.18 : 1
 
   ctx.save()
+  ctx.translate(x, y)   // ← all coordinates below are relative to bubble centre
   ctx.globalAlpha = alpha
 
-  // Outer pulse ring on hover — a second, wider translucent ring signals "clickable"
+  // Outer pulse ring on hover
   if (isHovered && !isDimmed) {
     ctx.beginPath()
-    ctx.arc(x, y, drawR + 5, 0, Math.PI * 2)   // float coords — smooth arc
+    ctx.arc(0, 0, drawR + 5, 0, Math.PI * 2)
     ctx.strokeStyle = ring + '50'
     ctx.lineWidth   = 1.5
     ctx.shadowBlur  = 0
     ctx.stroke()
   }
 
-  // Outer glow
+  // Glow + fill
   ctx.shadowBlur  = isDragging ? radius * 0.7 : isHovered ? radius * 0.75 : radius * 0.3
   ctx.shadowColor = glow
-
-  // Fill
   ctx.beginPath()
-  ctx.arc(x, y, drawR, 0, Math.PI * 2)          // float coords — smooth arc
+  ctx.arc(0, 0, drawR, 0, Math.PI * 2)
   ctx.fillStyle = fill
   ctx.fill()
 
@@ -118,56 +115,60 @@ function drawBubble(
   ctx.stroke()
   ctx.shadowBlur  = 0
 
-  // Clip to interior for logo + text
+  // Clip interior — everything below is clipped to the bubble disc
   ctx.beginPath()
-  ctx.arc(x, y, drawR - ringW / 2, 0, Math.PI * 2)   // float coords — smooth arc
+  ctx.arc(0, 0, drawR - ringW / 2, 0, Math.PI * 2)
   ctx.clip()
 
-  // ── Three content tiers based on available radius ────────────────────────
-  // Tiny  (< 16px): logo only, centered and large — no text
-  // Small (16-27px): logo + symbol name
-  // Full  (≥ 28px): logo + symbol + metric value  (original behaviour)
+  // ── Content tiers (all coordinates relative to centre = 0, 0) ───────────
+  // Tiny  (< 16px): logo or 2-letter abbrev only
+  // Small (16-27px): logo + symbol
+  // Full  (≥ 28px): logo (larger, upper half) + symbol + metric value
 
   if (drawRi < 16) {
-    // Tiny bubble — logo centered if available, otherwise 2-letter abbreviation
-    ctx.globalAlpha = isDimmed ? 0.18 : 1
+    ctx.globalAlpha = alpha
     if (img) {
-      const logoSize = Math.round(drawRi * 1.1)
-      ctx.drawImage(img, tx - (logoSize >> 1), ty - (logoSize >> 1), logoSize, logoSize)
+      const s = Math.round(drawRi * 1.1)
+      ctx.drawImage(img, -(s >> 1), -(s >> 1), s, s)
     } else {
       ctx.font         = `700 ${Math.max(6, Math.round(drawRi * 0.55))}px Inter, system-ui, sans-serif`
       ctx.fillStyle    = '#ffffff'
       ctx.textAlign    = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillText(symbol.slice(0, 2), tx, ty)
+      ctx.fillText(symbol.slice(0, 2), 0, 0)
     }
   } else {
-    // Text layout uses drawRi (integer) so font sizes and positions are stable
-    const symFontSize = Math.round(Math.max(9, Math.min(drawRi * 0.33, 20)))
-    const valFontSize = Math.round(Math.max(7, Math.min(drawRi * 0.22, 13)))
-    const logoH       = Math.round(drawRi * 0.42)
-    const hasLogo     = !!img && drawRi >= 16
+    // All sizes derived from drawRi so layout never changes mid-tween.
+    // Logo is 63% of diameter (was 42%) — more prominent, matches the modal's
+    // round token image. Content is shifted up ~10% of radius so the logo
+    // occupies the upper half and text sits in the lower half.
+    const symFontSize = Math.round(Math.max(9,  Math.min(drawRi * 0.33, 20)))
+    const valFontSize = Math.round(Math.max(7,  Math.min(drawRi * 0.22, 13)))
+    const logoH       = Math.round(drawRi * 0.63)
+    const hasLogo     = !!img
 
     const showValue = drawRi >= 28
-    const totalH = hasLogo
-      ? logoH + symFontSize * 1.15 + (showValue ? valFontSize * 1.1 : 0)
-      : symFontSize * 1.15 + (showValue ? valFontSize * 1.1 : 0)
-    let cursorY = Math.round(ty - totalH / 2)
+    const gap    = Math.round(symFontSize * 0.15)
+    const textH  = symFontSize + (showValue ? gap + valFontSize : 0)
+    const totalH = hasLogo ? logoH + gap + textH : textH
+
+    // Shift the whole group up so the logo lands in the upper half
+    const lift    = Math.round(drawRi * 0.10)
+    let cursorY = Math.round(-totalH / 2) - lift
 
     if (hasLogo) {
-      ctx.globalAlpha = isDimmed ? 0.18 : 1
-      ctx.drawImage(img!, tx - (logoH >> 1), cursorY, logoH, logoH)
-      cursorY = Math.round(cursorY + logoH + symFontSize * 0.1)
+      ctx.globalAlpha = alpha
+      ctx.drawImage(img!, -(logoH >> 1), cursorY, logoH, logoH)
+      cursorY += logoH + gap
     }
 
-    ctx.globalAlpha  = isDimmed ? 0.18 : 1
+    ctx.globalAlpha  = alpha
     ctx.font         = `700 ${symFontSize}px Inter, system-ui, sans-serif`
     ctx.fillStyle    = '#ffffff'
     ctx.textAlign    = 'center'
     ctx.textBaseline = 'top'
-    const displaySym = symbol.length > 7 ? symbol.slice(0, 6) + '…' : symbol
-    ctx.fillText(displaySym, tx, cursorY)
-    cursorY = Math.round(cursorY + symFontSize * 1.15)
+    ctx.fillText(symbol.length > 7 ? symbol.slice(0, 6) + '…' : symbol, 0, cursorY)
+    cursorY += symFontSize + gap
 
     if (showValue) {
       ctx.globalAlpha  = isDimmed ? 0.18 : 0.9
@@ -175,7 +176,7 @@ function drawBubble(
       ctx.fillStyle    = metricTextColor(node, displayMode)
       ctx.textAlign    = 'center'
       ctx.textBaseline = 'top'
-      ctx.fillText(formatMetricValue(node, displayMode), tx, cursorY)
+      ctx.fillText(formatMetricValue(node, displayMode), 0, cursorY)
     }
   }
 
