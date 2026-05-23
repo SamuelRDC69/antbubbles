@@ -12,7 +12,9 @@ export function getMetricValue(token: TokenBubbleData, mode: DisplayMode): numbe
         ? (token.change7d ?? token.change24)
         : token.change24
     case 'price':
-      return token.usd_price
+      // Price mode keeps the same bubble sizes as % Change so switching between
+      // them doesn't cause a resize — only the displayed label changes.
+      return token.change24
     case 'volume':
       if (mode.timeframe === '7d')  return token.volume7dusd  ?? token.volume24usd
       if (mode.timeframe === '30d') return token.volume30dusd ?? token.volume7dusd ?? token.volume24usd
@@ -39,18 +41,27 @@ export function computeRadii(
   const values    = rawValues.map(Math.abs)
   const maxVal    = Math.max(...values.filter(v => v > 0))
 
-  // sqrt-compressed weights (0.05 floor for zero-change tokens)
-  const norms = values.map(v => maxVal > 0 && v > 0 ? Math.sqrt(v / maxVal) : 0.05)
+  // Normalization exponent — chosen per metric to balance visual spread:
+  //
+  //   change / price  → sqrt (1/2): standard, works well for ±% distributions
+  //   volume/tvl/mcap → cbrt (1/3): these have extreme outliers (one token at
+  //     100× the rest). Cube root compresses less aggressively so mid-range
+  //     tokens stay visually distinct instead of all clustering at minimum size.
+  //
+  // Example with a 1000× outlier:
+  //   sqrt: outlier=1.0, next=0.032 → basically invisible difference
+  //   cbrt: outlier=1.0, next=0.1   → clearly smaller but not tiny
+  const exp = (mode.metric === 'volume' || mode.metric === 'tvl' || mode.metric === 'mcap')
+    ? 1 / 3
+    : 1 / 2
 
-  // Exact area formula: instead of approximating with avgNorm, solve for scaledMin
-  // directly so that Σ π*(scaledMin + n_i*(scaledMax−scaledMin))² = fillTarget×W×H.
-  //
+  // Floor of 0.05 keeps zero-value tokens visible as small bubbles.
+  const norms = values.map(v => maxVal > 0 && v > 0 ? Math.pow(v / maxVal, exp) : 0.05)
+
+  // Exact area formula — solve for scaledMin so Σ π·r_i² = fillTarget×W×H exactly.
   // With scaledMax = ratio×scaledMin and r = ratio−1:
-  //   Σ π*(a + n_i·r·a)² = π·a²·(N + 2r·ΣN + r²·Σn²) = target
-  // → a = sqrt(target / (π·(N + 2r·ΣN + r²·Σn²)))
-  //
-  // This guarantees the correct fill fraction regardless of how skewed
-  // the distribution is (critical for Volume/TVL/MCap on mobile).
+  //   π·scaledMin²·(N + 2r·ΣN + r²·Σn²) = target
+  // → scaledMin = sqrt(target / (π·(N + 2r·ΣN + r²·Σn²)))
   const sumN  = norms.reduce((s, n) => s + n, 0)
   const sumN2 = norms.reduce((s, n) => s + n * n, 0)
 
@@ -59,22 +70,23 @@ export function computeRadii(
   if (containerWidth > 0 && containerHeight > 0) {
     const isMobile = containerWidth < 600
 
-    // Mobile: 50% fill so collision physics has breathing room.
-    // Desktop: 80% fill for a dense visual without bouncing.
+    // Mobile: 50% fill — breathing room for physics.
+    // Desktop: 80% fill — dense visual without bouncing.
     const fillTarget = isMobile ? 0.50 : 0.80
 
-    const ratio  = 6
-    const r      = ratio - 1  // = 5
-    const denom  = tokens.length + 2 * r * sumN + r * r * sumN2
+    // Higher ratio → wider size range → more visible variation between tokens.
+    const ratio = 8
+    const r     = ratio - 1  // = 7
+    const denom = tokens.length + 2 * r * sumN + r * r * sumN2
     const rawMin = Math.sqrt(containerWidth * containerHeight * fillTarget / (Math.PI * denom))
 
-    // Hard cap so the biggest bubble never dominates the viewport.
-    // 8% of canvas area on mobile, 14% on desktop.
-    const maxSinglePct = isMobile ? 0.08 : 0.14
+    // Max-bubble cap: ~60% of the previous cap so no single token dominates.
+    // (3% mobile / 6% desktop of canvas area).
+    const maxSinglePct = isMobile ? 0.03 : 0.06
     const areaMaxR     = Math.round(Math.sqrt(containerWidth * containerHeight * maxSinglePct / Math.PI))
-    const maxCap       = Math.round(Math.min(containerWidth, containerHeight) * 0.40)
+    const maxCap       = Math.round(Math.min(containerWidth, containerHeight) * 0.30)
 
-    // Allow scaledMin as small as 6px — tiny bubbles just show the logo (see draw code).
+    // Allow scaledMin as small as 6px — tiny bubbles just show the logo.
     scaledMin = Math.max(isMobile ? 6 : 10, Math.round(rawMin))
     scaledMax = Math.min(maxCap, areaMaxR, Math.max(scaledMin + 8, Math.round(rawMin * ratio)))
   }
