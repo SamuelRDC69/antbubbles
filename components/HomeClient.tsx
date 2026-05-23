@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { ChainConfig, TokenBubbleData, DisplayMode } from '@/lib/types'
 import { CHAINS, DEFAULT_CHAIN } from '@/lib/chains'
@@ -47,6 +47,29 @@ export default function HomeClient({ initialTokens }: Props) {
     const url = buildDefaultChartUrl(token, chain)
     if (url) prefetchChart(url)
   }, [chain])
+
+  // Proactive prefetch: as soon as the first token batch arrives, silently warm
+  // the chart cache for the top 15 tokens by market cap. These are the largest
+  // bubbles users click most — especially important on mobile where hover doesn't fire.
+  const prefetchedSetRef = useRef<string>('')
+  useEffect(() => {
+    if (tokens.length === 0) return
+    const key = chain.id
+    if (prefetchedSetRef.current === key) return   // already prefetched for this chain
+    prefetchedSetRef.current = key
+
+    const top15 = [...tokens]
+      .sort((a, b) => (b.marketCapUsd ?? 0) - (a.marketCapUsd ?? 0))
+      .slice(0, 15)
+
+    // Stagger slightly so we don't fire 15 requests simultaneously on page load
+    top15.forEach((token, i) => {
+      setTimeout(() => {
+        const url = buildDefaultChartUrl(token, chain)
+        if (url) prefetchChart(url)
+      }, i * 120)
+    })
+  }, [tokens, chain])
 
   return (
     <div className="flex flex-col h-screen bg-black text-white overflow-hidden">

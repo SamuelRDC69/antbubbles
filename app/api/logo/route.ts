@@ -30,7 +30,10 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
+        // s-maxage tells Vercel's CDN to cache at the edge — without it every
+        // request hits the function even though max-age is set. Logos never
+        // change for a given token, so a 7-day edge cache is safe.
+        'Cache-Control': 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800',
       },
     })
   } catch {

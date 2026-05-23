@@ -5,10 +5,14 @@ import { NextRequest, NextResponse } from 'next/server'
 // Two-layer cache: in-process Map (L1) + next: revalidate (L2, Vercel Data Cache)
 
 function ttlMs(resolution: string): number {
-  if (['1D', '1W', '1M'].includes(resolution)) return 60 * 60 * 1000
-  if (resolution === '240') return 15 * 60 * 1000
-  if (resolution === '60')  return 10 * 60 * 1000
-  return 3 * 60 * 1000
+  // Historical candles don't change — cache aggressively.
+  // Only recent sub-hourly bars need short TTLs.
+  if (resolution === '1M')  return 24 * 60 * 60 * 1000   // 24 h
+  if (resolution === '1W')  return 12 * 60 * 60 * 1000   // 12 h
+  if (resolution === '1D')  return  6 * 60 * 60 * 1000   //  6 h
+  if (resolution === '240') return 30 * 60 * 1000         // 30 min
+  if (resolution === '60')  return 15 * 60 * 1000         // 15 min
+  return 3 * 60 * 1000                                    //  3 min
 }
 function ttlS(resolution: string): number { return ttlMs(resolution) / 1000 }
 
