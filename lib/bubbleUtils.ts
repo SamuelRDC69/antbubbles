@@ -36,16 +36,17 @@ export function computeRadii(
   const radii = new Map<string, number>()
   if (tokens.length === 0) return radii
 
-  // Derive a scale factor from how much screen area is available per bubble.
-  // Reference calibration: ~1280×800 with ~30 tokens → scale ≈ 1.0 → original sizes.
+  // Target ~93% visual area coverage: derive avg radius from viewport × 0.93 / tokenCount,
+  // then set min/max proportionally. Cap max at 25% of the shorter viewport dimension so
+  // no single bubble dominates the screen. Scales naturally to every screen size.
   let scaledMin = MIN_RADIUS
   let scaledMax = MAX_RADIUS
   if (containerWidth > 0 && containerHeight > 0) {
-    const areaPerToken = (containerWidth * containerHeight) / tokens.length
-    const refRadius    = Math.sqrt(areaPerToken * 0.40 / Math.PI)
-    const scale        = Math.min(1, Math.max(0.22, refRadius / 55))
-    scaledMin = Math.max(14, Math.round(MIN_RADIUS * scale))
-    scaledMax = Math.max(scaledMin + 10, Math.round(MAX_RADIUS * scale))
+    const targetArea = containerWidth * containerHeight * 0.93
+    const avgRadius  = Math.sqrt(targetArea / (tokens.length * Math.PI))
+    const maxCap     = Math.round(Math.min(containerWidth, containerHeight) * 0.25)
+    scaledMin = Math.max(14, Math.round(avgRadius * 0.35))
+    scaledMax = Math.min(maxCap, Math.max(scaledMin + 10, Math.round(avgRadius * 2.2)))
   }
 
   // Bubble size is always driven by |change24| so the layout stays stable
