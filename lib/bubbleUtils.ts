@@ -24,9 +24,6 @@ export function getMetricValue(token: TokenBubbleData, mode: DisplayMode): numbe
   }
 }
 
-// Scales bubble radii so that the total bubble area stays proportional to the
-// available viewport space regardless of screen size. Both min and max scale
-// together so the relative size range is preserved on every screen size.
 export function computeRadii(
   tokens: TokenBubbleData[],
   mode: DisplayMode,
@@ -36,35 +33,40 @@ export function computeRadii(
   const radii = new Map<string, number>()
   if (tokens.length === 0) return radii
 
-  // Target ~93% visual area coverage: derive avg radius from viewport × 0.93 / tokenCount,
-  // then set min/max proportionally. Cap max at 25% of the shorter viewport dimension so
-  // no single bubble dominates the screen. Scales naturally to every screen size.
-  let scaledMin = MIN_RADIUS
-  let scaledMax = MAX_RADIUS
-  if (containerWidth > 0 && containerHeight > 0) {
-    const targetArea = containerWidth * containerHeight * 0.93
-    const avgRadius  = Math.sqrt(targetArea / (tokens.length * Math.PI))
-    const maxCap     = Math.round(Math.min(containerWidth, containerHeight) * 0.25)
-    scaledMin = Math.max(14, Math.round(avgRadius * 0.35))
-    scaledMax = Math.min(maxCap, Math.max(scaledMin + 10, Math.round(avgRadius * 2.2)))
-  }
-
-  // Bubble size is always driven by |change24| so the layout stays stable
-  // when switching display modes — only the label inside the bubble changes.
+  // Bubble size driven by |change| so layout stays stable across display modes.
   const changeMode: DisplayMode = { metric: 'change', timeframe: mode.timeframe }
   const rawValues = tokens.map(t => getMetricValue(t, changeMode))
   const values    = rawValues.map(Math.abs)
+  const maxVal    = Math.max(...values.filter(v => v > 0))
 
-  const max = Math.max(...values.filter(v => v > 0))
-  if (max <= 0) {
+  // sqrt-compressed weights (0.05 floor for zero-change tokens)
+  const norms   = values.map(v => maxVal > 0 && v > 0 ? Math.sqrt(v / maxVal) : 0.05)
+  const avgNorm = norms.reduce((s, n) => s + n, 0) / norms.length
+
+  // Calibrate min/max so the *actual* average bubble area hits ~85% of viewport,
+  // accounting for the sqrt-skewed weight distribution.
+  //
+  // Solving:  targetAvgR = scaledMin + avgNorm × (scaledMax − scaledMin)
+  //           scaledMax  = scaledMin × ratio
+  // →         scaledMin  = targetAvgR / (1 + avgNorm × (ratio − 1))
+  let scaledMin = MIN_RADIUS
+  let scaledMax = MAX_RADIUS
+  if (containerWidth > 0 && containerHeight > 0) {
+    const targetAvgR = Math.sqrt(containerWidth * containerHeight * 0.85 / (tokens.length * Math.PI))
+    const maxCap     = Math.round(Math.min(containerWidth, containerHeight) * 0.40)
+    const ratio      = 6
+    const rawMin     = targetAvgR / (1 + avgNorm * (ratio - 1))
+    scaledMin = Math.max(12, Math.round(rawMin))
+    scaledMax = Math.min(maxCap, Math.max(scaledMin + 10, Math.round(rawMin * ratio)))
+  }
+
+  if (maxVal <= 0) {
     for (const t of tokens) radii.set(t.id, scaledMin)
     return radii
   }
 
   for (let i = 0; i < tokens.length; i++) {
-    const v    = values[i]
-    const norm = v > 0 ? Math.sqrt(v / max) : 0.05
-    radii.set(tokens[i].id, scaledMin + norm * (scaledMax - scaledMin))
+    radii.set(tokens[i].id, Math.round(scaledMin + norms[i] * (scaledMax - scaledMin)))
   }
   return radii
 }
