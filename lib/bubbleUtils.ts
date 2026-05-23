@@ -40,35 +40,43 @@ export function computeRadii(
   const maxVal    = Math.max(...values.filter(v => v > 0))
 
   // sqrt-compressed weights (0.05 floor for zero-change tokens)
-  const norms   = values.map(v => maxVal > 0 && v > 0 ? Math.sqrt(v / maxVal) : 0.05)
-  const avgNorm = norms.reduce((s, n) => s + n, 0) / norms.length
+  const norms = values.map(v => maxVal > 0 && v > 0 ? Math.sqrt(v / maxVal) : 0.05)
 
-  // Calibrate min/max so the *actual* average bubble area hits ~85% of viewport,
-  // accounting for the sqrt-skewed weight distribution.
+  // Exact area formula: instead of approximating with avgNorm, solve for scaledMin
+  // directly so that Σ π*(scaledMin + n_i*(scaledMax−scaledMin))² = fillTarget×W×H.
   //
-  // Solving:  targetAvgR = scaledMin + avgNorm × (scaledMax − scaledMin)
-  //           scaledMax  = scaledMin × ratio
-  // →         scaledMin  = targetAvgR / (1 + avgNorm × (ratio − 1))
+  // With scaledMax = ratio×scaledMin and r = ratio−1:
+  //   Σ π*(a + n_i·r·a)² = π·a²·(N + 2r·ΣN + r²·Σn²) = target
+  // → a = sqrt(target / (π·(N + 2r·ΣN + r²·Σn²)))
+  //
+  // This guarantees the correct fill fraction regardless of how skewed
+  // the distribution is (critical for Volume/TVL/MCap on mobile).
+  const sumN  = norms.reduce((s, n) => s + n, 0)
+  const sumN2 = norms.reduce((s, n) => s + n * n, 0)
+
   let scaledMin = MIN_RADIUS
   let scaledMax = MAX_RADIUS
   if (containerWidth > 0 && containerHeight > 0) {
-    // On narrow viewports (mobile) reduce fill target so the collision physics
-    // has breathing room — too-dense packing causes erratic bouncing.
-    const isMobile    = containerWidth < 600
-    const fillTarget  = isMobile ? 0.70 : 0.85
-    const targetAvgR  = Math.sqrt(containerWidth * containerHeight * fillTarget / (tokens.length * Math.PI))
+    const isMobile = containerWidth < 600
 
-    // Hard cap on the single largest bubble so skewed distributions (Volume mode:
-    // one token at $2.8K, everyone else at $0) don't create a bubble that fills
-    // 60%+ of the viewport and forces all others to the edges.
-    const maxSinglePct = isMobile ? 0.07 : 0.12
+    // Mobile: 50% fill so collision physics has breathing room.
+    // Desktop: 80% fill for a dense visual without bouncing.
+    const fillTarget = isMobile ? 0.50 : 0.80
+
+    const ratio  = 6
+    const r      = ratio - 1  // = 5
+    const denom  = tokens.length + 2 * r * sumN + r * r * sumN2
+    const rawMin = Math.sqrt(containerWidth * containerHeight * fillTarget / (Math.PI * denom))
+
+    // Hard cap so the biggest bubble never dominates the viewport.
+    // 8% of canvas area on mobile, 14% on desktop.
+    const maxSinglePct = isMobile ? 0.08 : 0.14
     const areaMaxR     = Math.round(Math.sqrt(containerWidth * containerHeight * maxSinglePct / Math.PI))
+    const maxCap       = Math.round(Math.min(containerWidth, containerHeight) * 0.40)
 
-    const maxCap  = Math.round(Math.min(containerWidth, containerHeight) * 0.40)
-    const ratio   = 6
-    const rawMin  = targetAvgR / (1 + avgNorm * (ratio - 1))
-    scaledMin = Math.max(12, Math.round(rawMin))
-    scaledMax = Math.min(maxCap, areaMaxR, Math.max(scaledMin + 10, Math.round(rawMin * ratio)))
+    // Allow scaledMin as small as 6px — tiny bubbles just show the logo (see draw code).
+    scaledMin = Math.max(isMobile ? 6 : 10, Math.round(rawMin))
+    scaledMax = Math.min(maxCap, areaMaxR, Math.max(scaledMin + 8, Math.round(rawMin * ratio)))
   }
 
   if (maxVal <= 0) {

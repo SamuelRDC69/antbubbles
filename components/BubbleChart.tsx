@@ -115,23 +115,42 @@ function drawBubble(
   ctx.arc(x, y, drawR - ringW / 2, 0, Math.PI * 2)
   ctx.clip()
 
-  const symFontSize = Math.max(9, Math.min(drawR * 0.33, 20))
-  const valFontSize = Math.max(7, Math.min(drawR * 0.22, 13))
-  const logoH       = drawR * 0.42
-  const hasLogo     = !!img && drawR >= 28
+  // ── Three content tiers based on available radius ────────────────────────
+  // Tiny  (< 16px): logo only, centered and large — no text
+  // Small (16-27px): logo + symbol name
+  // Full  (≥ 28px): logo + symbol + metric value  (original behaviour)
 
-  const totalH = hasLogo
-    ? logoH + symFontSize * 1.15 + valFontSize * 1.1
-    : symFontSize * 1.15 + valFontSize * 1.1
-  let cursorY = y - totalH / 2
-
-  if (hasLogo) {
+  if (drawR < 16) {
+    // Tiny bubble — logo centered if available, otherwise 2-letter abbreviation
     ctx.globalAlpha = isDimmed ? 0.18 : 1
-    ctx.drawImage(img!, x - logoH / 2, cursorY, logoH, logoH)
-    cursorY += logoH + symFontSize * 0.1
-  }
+    if (img) {
+      const logoSize = drawR * 1.1  // slightly larger than radius looks good inside the clip
+      ctx.drawImage(img, x - logoSize / 2, y - logoSize / 2, logoSize, logoSize)
+    } else {
+      ctx.font         = `700 ${Math.max(6, Math.round(drawR * 0.55))}px Inter, system-ui, sans-serif`
+      ctx.fillStyle    = '#ffffff'
+      ctx.textAlign    = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(symbol.slice(0, 2), x, y)
+    }
+  } else {
+    const symFontSize = Math.max(9, Math.min(drawR * 0.33, 20))
+    const valFontSize = Math.max(7, Math.min(drawR * 0.22, 13))
+    const logoH       = drawR * 0.42
+    const hasLogo     = !!img && drawR >= 16
 
-  if (drawR >= 22) {
+    const showValue = drawR >= 28
+    const totalH = hasLogo
+      ? logoH + symFontSize * 1.15 + (showValue ? valFontSize * 1.1 : 0)
+      : symFontSize * 1.15 + (showValue ? valFontSize * 1.1 : 0)
+    let cursorY = y - totalH / 2
+
+    if (hasLogo) {
+      ctx.globalAlpha = isDimmed ? 0.18 : 1
+      ctx.drawImage(img!, x - logoH / 2, cursorY, logoH, logoH)
+      cursorY += logoH + symFontSize * 0.1
+    }
+
     ctx.globalAlpha  = isDimmed ? 0.18 : 1
     ctx.font         = `700 ${symFontSize}px Inter, system-ui, sans-serif`
     ctx.fillStyle    = '#ffffff'
@@ -140,15 +159,15 @@ function drawBubble(
     const displaySym = symbol.length > 7 ? symbol.slice(0, 6) + '…' : symbol
     ctx.fillText(displaySym, x, cursorY)
     cursorY += symFontSize * 1.15
-  }
 
-  if (drawR >= 30) {
-    ctx.globalAlpha  = isDimmed ? 0.18 : 0.9
-    ctx.font         = `600 ${valFontSize}px Inter, system-ui, sans-serif`
-    ctx.fillStyle    = metricTextColor(node, displayMode)
-    ctx.textAlign    = 'center'
-    ctx.textBaseline = 'top'
-    ctx.fillText(formatMetricValue(node, displayMode), x, cursorY)
+    if (showValue) {
+      ctx.globalAlpha  = isDimmed ? 0.18 : 0.9
+      ctx.font         = `600 ${valFontSize}px Inter, system-ui, sans-serif`
+      ctx.fillStyle    = metricTextColor(node, displayMode)
+      ctx.textAlign    = 'center'
+      ctx.textBaseline = 'top'
+      ctx.fillText(formatMetricValue(node, displayMode), x, cursorY)
+    }
   }
 
   ctx.restore()
@@ -246,6 +265,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
         .force('mouseSpring', buildMouseSpringForce(nodesRef, dragRef, mouseTargetRef))
         .force('collide',     buildHardCollideForce(nodesRef, dimRef))
         .force('boundary',    buildBoundaryForce(nodesRef, dimRef))
+        .force('center',      buildCenterForce(nodesRef, dimRef))
         .force('wander',      buildWanderForce(nodesRef, dragRef, dimRef))
 
       // First ever load has no previous positions — start at high energy so
@@ -592,8 +612,8 @@ function buildHardCollideForce(
   nodesRef: React.RefObject<SimNode[]>,
   dimRef:   React.RefObject<{ width: number; height: number }>,
 ) {
-  const GAP        = 2
-  const ITERATIONS = 5
+  const GAP        = 4   // px gap between bubble rings (prevents visual ring merging)
+  const ITERATIONS = 8   // more iterations → cleaner separation each tick
   const VEL_SCALE  = 0.25
 
   return function hardCollideForce() {
@@ -674,6 +694,24 @@ function buildBoundaryForce(
   }
 }
 
+// Gentle gravity toward canvas centre — prevents low-energy mobile bubbles
+// from clustering in one corner and leaving the rest of the canvas empty.
+function buildCenterForce(
+  nodesRef: React.RefObject<SimNode[]>,
+  dimRef:   React.RefObject<{ width: number; height: number }>,
+) {
+  const STRENGTH = 0.006
+  return function centerForce() {
+    const { width, height } = dimRef.current!
+    const cx = width  / 2
+    const cy = height / 2
+    for (const n of nodesRef.current!) {
+      n.vx! += (cx - (n.x ?? cx)) * STRENGTH
+      n.vy! += (cy - (n.y ?? cy)) * STRENGTH
+    }
+  }
+}
+
 function buildWanderForce(
   nodesRef: React.RefObject<SimNode[]>,
   dragRef:  React.RefObject<SimNode | null>,
@@ -687,9 +725,13 @@ function buildWanderForce(
     const { width } = dimRef.current!
     // Scale down energy on narrow viewports so bubbles don't thrash in tight spaces.
     // 900px is the reference "desktop" width — below that energy tapers off.
-    const scale    = Math.min(1, Math.max(0.35, width / 900))
-    const IMPULSE  = BASE_IMPULSE * scale
-    const MAX_SPEED = Math.max(0.6, BASE_SPEED * scale)
+    // On mobile (< 600px) cap energy lower so slow-moving bubbles don't
+    // repeatedly push into each other before the collision force can correct.
+    const scale     = width < 600
+      ? Math.min(0.3, Math.max(0.15, width / 900))
+      : Math.min(1,   Math.max(0.35, width / 900))
+    const IMPULSE   = BASE_IMPULSE * scale
+    const MAX_SPEED = Math.max(width < 600 ? 0.4 : 0.6, BASE_SPEED * scale)
 
     const dragged = dragRef.current
     for (const n of nodesRef.current! as WanderNode[]) {
