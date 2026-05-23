@@ -33,9 +33,9 @@ export function computeRadii(
   const radii = new Map<string, number>()
   if (tokens.length === 0) return radii
 
-  // Bubble size driven by |change| so layout stays stable across display modes.
-  const changeMode: DisplayMode = { metric: 'change', timeframe: mode.timeframe }
-  const rawValues = tokens.map(t => getMetricValue(t, changeMode))
+  // Bubble size is driven by the active metric so switching modes resizes bubbles.
+  // Positions stay fixed — only targetRadius changes and the tween force animates it.
+  const rawValues = tokens.map(t => getMetricValue(t, mode))
   const values    = rawValues.map(Math.abs)
   const maxVal    = Math.max(...values.filter(v => v > 0))
 
