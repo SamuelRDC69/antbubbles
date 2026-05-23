@@ -24,17 +24,29 @@ export function getMetricValue(token: TokenBubbleData, mode: DisplayMode): numbe
   }
 }
 
-// containerWidth lets us scale bubbles down so they fit on small screens without
-// constantly overlapping — the main cause of erratic mobile collision bouncing.
-export function computeRadii(tokens: TokenBubbleData[], mode: DisplayMode, containerWidth = 0): Map<string, number> {
+// Scales bubble radii so that the total bubble area stays proportional to the
+// available viewport space regardless of screen size. Both min and max scale
+// together so the relative size range is preserved on every screen size.
+export function computeRadii(
+  tokens: TokenBubbleData[],
+  mode: DisplayMode,
+  containerWidth  = 0,
+  containerHeight = 0,
+): Map<string, number> {
   const radii = new Map<string, number>()
   if (tokens.length === 0) return radii
 
-  // On narrow viewports (phones) a 140px bubble is ~75% of screen width and dozens
-  // of them can't pack without constant collision, so cap the max proportionally.
-  const scaledMax = containerWidth > 0
-    ? Math.min(MAX_RADIUS, Math.max(MIN_RADIUS + 10, containerWidth * 0.13))
-    : MAX_RADIUS
+  // Derive a scale factor from how much screen area is available per bubble.
+  // Reference calibration: ~1280×800 with ~30 tokens → scale ≈ 1.0 → original sizes.
+  let scaledMin = MIN_RADIUS
+  let scaledMax = MAX_RADIUS
+  if (containerWidth > 0 && containerHeight > 0) {
+    const areaPerToken = (containerWidth * containerHeight) / tokens.length
+    const refRadius    = Math.sqrt(areaPerToken * 0.22 / Math.PI)
+    const scale        = Math.min(1, Math.max(0.22, refRadius / 55))
+    scaledMin = Math.max(14, Math.round(MIN_RADIUS * scale))
+    scaledMax = Math.max(scaledMin + 10, Math.round(MAX_RADIUS * scale))
+  }
 
   // Bubble size is always driven by |change24| so the layout stays stable
   // when switching display modes — only the label inside the bubble changes.
@@ -44,14 +56,14 @@ export function computeRadii(tokens: TokenBubbleData[], mode: DisplayMode, conta
 
   const max = Math.max(...values.filter(v => v > 0))
   if (max <= 0) {
-    for (const t of tokens) radii.set(t.id, MIN_RADIUS)
+    for (const t of tokens) radii.set(t.id, scaledMin)
     return radii
   }
 
   for (let i = 0; i < tokens.length; i++) {
     const v    = values[i]
     const norm = v > 0 ? Math.sqrt(v / max) : 0.05
-    radii.set(tokens[i].id, MIN_RADIUS + norm * (scaledMax - MIN_RADIUS))
+    radii.set(tokens[i].id, scaledMin + norm * (scaledMax - scaledMin))
   }
   return radii
 }

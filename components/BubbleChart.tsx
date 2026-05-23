@@ -27,13 +27,14 @@ interface Props {
 }
 
 interface SimNode extends TokenBubbleData {
-  x:      number
-  y:      number
-  vx:     number
-  vy:     number
-  fx:     number | null
-  fy:     number | null
-  radius: number
+  x:            number
+  y:            number
+  vx:           number
+  vy:           number
+  fx:           number | null
+  fy:           number | null
+  radius:       number
+  targetRadius: number
 }
 
 interface WanderNode extends SimNode { _angle?: number }
@@ -206,7 +207,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
     if (dimensions.width === 0 || tokens.length === 0) return
 
     const { width, height } = dimensions
-    const radii = computeRadii(tokens, displayMode, width)
+    const radii = computeRadii(tokens, displayMode, width, height)
 
     const newKey       = tokens.map(t => t.id).sort().join(',')
     const isNewTokenSet = newKey !== tokenIdsRef.current
@@ -223,9 +224,11 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
 
       const nodes: SimNode[] = tokens.map(t => {
         const p = prevPos.get(t.id)
+        const r = radii.get(t.id) ?? 28
         return {
           ...t,
-          radius: radii.get(t.id) ?? 28,
+          radius:       p ? (nodesRef.current.find(n => n.id === t.id)?.radius ?? r) : r,
+          targetRadius: r,
           x:  p?.x  ?? width  / 2 + (Math.random() - 0.5) * width  * 0.5,
           y:  p?.y  ?? height / 2 + (Math.random() - 0.5) * height * 0.5,
           vx: p?.vx ?? 0,
@@ -240,6 +243,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
         .alphaDecay(0)
         .alphaTarget(0.3)
         .velocityDecay(0.45)
+        .force('radiusTween', buildRadiusTweenForce(nodesRef))
         .force('mouseSpring', buildMouseSpringForce(nodesRef, dragRef, mouseTargetRef))
         .force('collide',     buildHardCollideForce(nodesRef, dimRef))
         .force('boundary',    buildBoundaryForce(nodesRef, dimRef))
@@ -288,12 +292,8 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
         node.supply       = fresh.supply
         node.marketCapUsd = fresh.marketCapUsd
 
-        const newR = radii.get(node.id) ?? 28
-        if (Math.abs(newR - node.radius) > 1) {
-          node.radius = newR
-          // No alpha boost needed — the collision force resolves any overlaps
-          // caused by size changes naturally on subsequent ticks.
-        }
+        const newR = radii.get(node.id) ?? node.radius
+        node.targetRadius = newR
       }
     }
 
@@ -561,6 +561,18 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
 }
 
 // ── Custom D3 forces ──────────────────────────────────────────────────────────
+
+// Smoothly tweens node.radius toward node.targetRadius each tick so that
+// viewport resize and token updates animate rather than snap.
+function buildRadiusTweenForce(nodesRef: React.RefObject<SimNode[]>) {
+  return function radiusTweenForce() {
+    for (const n of nodesRef.current!) {
+      const diff = n.targetRadius - n.radius
+      if (Math.abs(diff) < 0.3) { n.radius = n.targetRadius; continue }
+      n.radius += diff * 0.08
+    }
+  }
+}
 
 function buildMouseSpringForce(
   nodesRef:       React.RefObject<SimNode[]>,
