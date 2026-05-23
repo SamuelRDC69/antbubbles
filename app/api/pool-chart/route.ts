@@ -3,6 +3,8 @@ export const runtime = 'edge'
 import { NextRequest, NextResponse } from 'next/server'
 import { getRedis, REDIS_KEYS, chartTtlS } from '@/lib/redis'
 
+const ALCOR_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+
 // Three-layer cache:
 //   L0 — Upstash Redis (written by Railway worker, shared across all edge instances)
 //   L1 — in-process Map (per-instance, sub-millisecond)
@@ -59,7 +61,8 @@ export async function GET(req: NextRequest) {
 
   try {
     const res = await fetch(url.toString(), {
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(25_000),
+      headers: { 'User-Agent': ALCOR_UA },
       next: { revalidate: ttlS(resolution) },
     })
     if (!res.ok) {

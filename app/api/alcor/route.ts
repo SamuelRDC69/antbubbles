@@ -26,10 +26,12 @@ export async function GET(req: NextRequest) {
   if (hit && Date.now() - hit.ts < TTL_MS) return NextResponse.json(hit.data)
 
   const url = `https://${chain}.alcor.exchange/api/v2/${endpoint}`
+  const UA  = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
   try {
     const res = await fetch(url, {
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(25_000),
+      headers: { 'User-Agent': UA },
       next: { revalidate: TTL_S },
     })
     if (!res.ok) {

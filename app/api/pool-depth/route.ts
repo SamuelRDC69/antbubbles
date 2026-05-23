@@ -22,10 +22,12 @@ export async function GET(req: NextRequest) {
 
   const base = `https://${chain}.alcor.exchange/api/v2/swap/pools/${poolId}`
 
+  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+
   try {
     const [poolRes, posRes] = await Promise.all([
-      fetch(base,                { signal: AbortSignal.timeout(10_000), next: { revalidate: TTL_S } }),
-      fetch(`${base}/positions`, { signal: AbortSignal.timeout(10_000), next: { revalidate: TTL_S } }),
+      fetch(base,                { signal: AbortSignal.timeout(25_000), headers: { 'User-Agent': UA }, next: { revalidate: TTL_S } }),
+      fetch(`${base}/positions`, { signal: AbortSignal.timeout(25_000), headers: { 'User-Agent': UA }, next: { revalidate: TTL_S } }),
     ])
 
     const pool      = poolRes.ok ? await poolRes.json() : null

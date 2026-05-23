@@ -31,6 +31,12 @@ import type {
   AlcorPool,
 } from '../lib/types.js'
 
+// ── Shared headers for Alcor API (without User-Agent Alcor hangs server requests) ─────
+
+const ALCOR_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+}
+
 // ── Redis client ──────────────────────────────────────────────────────────────
 
 const redis = new Redis({
@@ -159,9 +165,9 @@ async function pollChain(chain: ChainConfig): Promise<TokenBubbleData[] | null> 
   const base = chain.apiBase
   try {
     const [tokensRes, tickersRes, poolsRes] = await Promise.all([
-      fetch(`${base}/tokens`,     { signal: AbortSignal.timeout(15_000) }),
-      fetch(`${base}/tickers`,    { signal: AbortSignal.timeout(15_000) }),
-      fetch(`${base}/swap/pools`, { signal: AbortSignal.timeout(15_000) }),
+      fetch(`${base}/tokens`,     { signal: AbortSignal.timeout(30_000), headers: ALCOR_HEADERS }),
+      fetch(`${base}/tickers`,    { signal: AbortSignal.timeout(30_000), headers: ALCOR_HEADERS }),
+      fetch(`${base}/swap/pools`, { signal: AbortSignal.timeout(30_000), headers: ALCOR_HEADERS }),
     ])
 
     if (!tokensRes.ok || !tickersRes.ok || !poolsRes.ok) {
@@ -237,7 +243,7 @@ async function warmPoolChart(
   if (reverse) url.searchParams.set('reverse', 'true')
 
   try {
-    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(12_000) })
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(30_000), headers: ALCOR_HEADERS })
     if (!res.ok) return
     const data = await res.json()
     await redis.set(redisKey, data, { ex: chartTtlS(resolution) })
@@ -263,7 +269,7 @@ async function warmKlines(
   url.searchParams.set('to', to)
 
   try {
-    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(12_000) })
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(30_000), headers: ALCOR_HEADERS })
     if (!res.ok) return
     const data = await res.json()
     await redis.set(redisKey, data, { ex: chartTtlS(resolution) })
