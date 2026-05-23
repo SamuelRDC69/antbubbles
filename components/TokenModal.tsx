@@ -892,6 +892,14 @@ export default function TokenModal({ token, chain, onClose }: Props) {
             }))
           : raw
 
+      // Return immediately from global cache if available (prevents different values on re-open)
+      const cachedPerf = getChart(url)
+      if (cachedPerf && cachedPerf.length >= 2) {
+        const pct = (cachedPerf[cachedPerf.length-1].close - cachedPerf[0].close) / cachedPerf[0].close * 100
+        setPerfs(prev => ({ ...prev, [r]: pct }))
+        return
+      }
+
       const getCandles = (fetchUrl: string) =>
         fetch(fetchUrl, { signal: ctrl.signal })
           .then(res => res.ok ? res.json() : [])
@@ -908,6 +916,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
       ]).then(async result => {
         const candles = result instanceof Promise ? (await result ?? []) : (result ?? [])
         if (candles.length >= 2) {
+          setChart(url, candles)
           const pct = (candles[candles.length-1].close - candles[0].close) / candles[0].close * 100
           setPerfs(prev => ({ ...prev, [r]: pct }))
         }
@@ -989,15 +998,15 @@ export default function TokenModal({ token, chain, onClose }: Props) {
   const RANGES: ChartRange[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M']
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:p-4"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-      <div className="relative z-10 w-full max-w-5xl rounded-2xl overflow-hidden flex shadow-2xl border border-white/[0.07]"
-        style={{ maxHeight: '90vh', background: '#0a0f14' }}>
+      <div className="relative z-10 w-full max-w-5xl rounded-t-2xl sm:rounded-2xl overflow-y-auto sm:overflow-hidden flex flex-col sm:flex-row shadow-2xl border border-white/[0.07]"
+        style={{ maxHeight: '92vh', background: '#0a0f14' }}>
 
 
         {/* ── Left panel ─────────────────────────────────────────────────── */}
-        <div className="w-64 shrink-0 flex flex-col border-r border-white/[0.06]" style={{ background: '#0c1218' }}>
+        <div className="w-full sm:w-64 shrink-0 flex flex-col border-b sm:border-b-0 sm:border-r border-white/[0.06]" style={{ background: '#0c1218' }}>
           <div className="p-4 pb-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2.5 mb-3">
               {!logoError ? (
@@ -1034,7 +1043,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
           </div>
 
           {/* Coin details */}
-          <div className="p-4 flex-1 overflow-y-auto">
+          <div className="p-4 sm:flex-1 sm:overflow-y-auto">
             <div className="text-[9px] text-gray-600 uppercase tracking-widest mb-2 font-semibold">Coin Details</div>
 
             {/* Rank */}

@@ -54,7 +54,6 @@ function loadImage(url: string): Promise<HTMLImageElement | null> {
   if (imageCache.has(url)) return Promise.resolve(imageCache.get(url)!)
   return new Promise(resolve => {
     const img = new Image()
-    img.crossOrigin = 'anonymous'
     img.onload  = () => { imageCache.set(url, img);  resolve(img)  }
     img.onerror = () => { imageCache.set(url, null); resolve(null) }
     img.src = url
