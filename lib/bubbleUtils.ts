@@ -52,12 +52,23 @@ export function computeRadii(
   let scaledMin = MIN_RADIUS
   let scaledMax = MAX_RADIUS
   if (containerWidth > 0 && containerHeight > 0) {
-    const targetAvgR = Math.sqrt(containerWidth * containerHeight * 0.85 / (tokens.length * Math.PI))
-    const maxCap     = Math.round(Math.min(containerWidth, containerHeight) * 0.40)
-    const ratio      = 6
-    const rawMin     = targetAvgR / (1 + avgNorm * (ratio - 1))
+    // On narrow viewports (mobile) reduce fill target so the collision physics
+    // has breathing room — too-dense packing causes erratic bouncing.
+    const isMobile    = containerWidth < 600
+    const fillTarget  = isMobile ? 0.70 : 0.85
+    const targetAvgR  = Math.sqrt(containerWidth * containerHeight * fillTarget / (tokens.length * Math.PI))
+
+    // Hard cap on the single largest bubble so skewed distributions (Volume mode:
+    // one token at $2.8K, everyone else at $0) don't create a bubble that fills
+    // 60%+ of the viewport and forces all others to the edges.
+    const maxSinglePct = isMobile ? 0.07 : 0.12
+    const areaMaxR     = Math.round(Math.sqrt(containerWidth * containerHeight * maxSinglePct / Math.PI))
+
+    const maxCap  = Math.round(Math.min(containerWidth, containerHeight) * 0.40)
+    const ratio   = 6
+    const rawMin  = targetAvgR / (1 + avgNorm * (ratio - 1))
     scaledMin = Math.max(12, Math.round(rawMin))
-    scaledMax = Math.min(maxCap, Math.max(scaledMin + 10, Math.round(rawMin * ratio)))
+    scaledMax = Math.min(maxCap, areaMaxR, Math.max(scaledMin + 10, Math.round(rawMin * ratio)))
   }
 
   if (maxVal <= 0) {
