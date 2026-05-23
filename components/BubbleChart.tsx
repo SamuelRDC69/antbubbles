@@ -70,14 +70,21 @@ function drawBubble(
   isDimmed:    boolean,
   displayMode: DisplayMode,
 ) {
-  const { x = 0, y = 0, radius, symbol } = node
+  // Round positions and radius to integer pixels.
+  // node.x/y are sub-pixel floats that change every simulation tick; node.radius
+  // tweens continuously at 8%/tick. Passing floats to fillText / drawImage causes
+  // the browser's pixel-snapping to shift text by ±1px between frames — visible
+  // as jitter. Integer inputs produce stable pixel-aligned output every frame.
+  const { x: rawX = 0, y: rawY = 0, radius, symbol } = node
+  const x = Math.round(rawX)
+  const y = Math.round(rawY)
   const fill  = bubbleFillColorForMode(node, displayMode)
   const ring  = ringColorForMode(node, displayMode)
   const glow  = glowColorForMode(node, displayMode)
 
   // Visual-only scale: bubbles lift slightly on hover to signal interactivity
   // Physics radius (node.radius) is unchanged — only drawing radius grows
-  const drawR = isDragging ? radius : isHovered ? radius * 1.07 : radius
+  const drawR = Math.round(isDragging ? radius : isHovered ? radius * 1.07 : radius)
   const ringW = Math.max(2, drawR * 0.07)
   const alpha = isDimmed ? 0.18 : 1
 
@@ -124,8 +131,8 @@ function drawBubble(
     // Tiny bubble — logo centered if available, otherwise 2-letter abbreviation
     ctx.globalAlpha = isDimmed ? 0.18 : 1
     if (img) {
-      const logoSize = drawR * 1.1  // slightly larger than radius looks good inside the clip
-      ctx.drawImage(img, x - logoSize / 2, y - logoSize / 2, logoSize, logoSize)
+      const logoSize = Math.round(drawR * 1.1)  // slightly larger than radius looks good inside the clip
+      ctx.drawImage(img, Math.round(x - logoSize / 2), Math.round(y - logoSize / 2), logoSize, logoSize)
     } else {
       ctx.font         = `700 ${Math.max(6, Math.round(drawR * 0.55))}px Inter, system-ui, sans-serif`
       ctx.fillStyle    = '#ffffff'
@@ -134,21 +141,21 @@ function drawBubble(
       ctx.fillText(symbol.slice(0, 2), x, y)
     }
   } else {
-    const symFontSize = Math.max(9, Math.min(drawR * 0.33, 20))
-    const valFontSize = Math.max(7, Math.min(drawR * 0.22, 13))
-    const logoH       = drawR * 0.42
+    const symFontSize = Math.round(Math.max(9, Math.min(drawR * 0.33, 20)))
+    const valFontSize = Math.round(Math.max(7, Math.min(drawR * 0.22, 13)))
+    const logoH       = Math.round(drawR * 0.42)
     const hasLogo     = !!img && drawR >= 16
 
     const showValue = drawR >= 28
     const totalH = hasLogo
       ? logoH + symFontSize * 1.15 + (showValue ? valFontSize * 1.1 : 0)
       : symFontSize * 1.15 + (showValue ? valFontSize * 1.1 : 0)
-    let cursorY = y - totalH / 2
+    let cursorY = Math.round(y - totalH / 2)
 
     if (hasLogo) {
       ctx.globalAlpha = isDimmed ? 0.18 : 1
-      ctx.drawImage(img!, x - logoH / 2, cursorY, logoH, logoH)
-      cursorY += logoH + symFontSize * 0.1
+      ctx.drawImage(img!, Math.round(x - logoH / 2), cursorY, logoH, logoH)
+      cursorY = Math.round(cursorY + logoH + symFontSize * 0.1)
     }
 
     ctx.globalAlpha  = isDimmed ? 0.18 : 1
@@ -158,7 +165,7 @@ function drawBubble(
     ctx.textBaseline = 'top'
     const displaySym = symbol.length > 7 ? symbol.slice(0, 6) + '…' : symbol
     ctx.fillText(displaySym, x, cursorY)
-    cursorY += symFontSize * 1.15
+    cursorY = Math.round(cursorY + symFontSize * 1.15)
 
     if (showValue) {
       ctx.globalAlpha  = isDimmed ? 0.18 : 0.9

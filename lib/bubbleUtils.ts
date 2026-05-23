@@ -55,22 +55,34 @@ export function computeRadii(
     ? 1 / 3
     : 1 / 2
 
-  // Normalize against the 95th-percentile value rather than the raw max.
-  // When one token has an extreme outlier value (e.g. $13B mcap vs $10K for
-  // everyone else), using the max as the reference collapses all other norms
-  // near zero — even cube root can't fix a 1,000,000× ratio.
-  // Capping at p95 means the top ~5% of tokens all show at maximum size,
-  // while the remaining 95% spread across the full size range visibly.
-  const posVals  = values.filter(v => v > 0).sort((a, b) => a - b)
-  const p95      = posVals.length > 0
+  // Two-segment normalization — handles extreme outliers while keeping variation.
+  //
+  // The 95th-percentile value is used as the boundary between segments:
+  //   Bottom 95%: normalized against p95 → mapped to [0, TOP_FLOOR]
+  //   Top    5%:  log-scale spread       → mapped to [TOP_FLOOR, 1.0]
+  //
+  // Using cbrt/sqrt for the bottom segment (good spread for moderate variation)
+  // and log for the top segment (so a 10,000× outlier still looks larger than
+  // a 2× outlier, rather than all top tokens converging on the same max size).
+  //
+  // When there are no meaningful outliers above p95, TOP_FLOOR = 1.0 so the
+  // formula collapses back to standard normalization with no wasted range.
+  const posVals     = values.filter(v => v > 0).sort((a, b) => a - b)
+  const p95         = posVals.length > 0
     ? posVals[Math.max(0, Math.floor(posVals.length * 0.95) - 1)]
     : maxVal
-  const normRef  = Math.max(p95, 1)
+  const normRef     = Math.max(p95, 1)
+  const hasOutliers = maxVal > normRef * 1.01  // anything >1% above p95 triggers two-segment mode
+  const TOP_FLOOR   = hasOutliers ? 0.85 : 1.0
 
   // Floor of 0.05 keeps zero-value tokens visible as small bubbles.
-  const norms = values.map(v =>
-    v > 0 ? Math.min(1, Math.pow(Math.min(v, normRef) / normRef, exp)) : 0.05
-  )
+  const norms = values.map(v => {
+    if (v <= 0) return 0.05
+    if (v <= normRef) return Math.pow(v / normRef, exp) * TOP_FLOOR
+    // Above p95 — log scale so the true outlier is visibly the largest
+    const logRatio = Math.log(v / normRef) / Math.log(maxVal / normRef)
+    return TOP_FLOOR + logRatio * (1 - TOP_FLOOR)
+  })
 
   // Exact area formula — solve for scaledMin so Σ π·r_i² = fillTarget×W×H exactly.
   // With scaledMax = ratio×scaledMin and r = ratio−1:
