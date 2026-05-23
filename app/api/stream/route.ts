@@ -8,6 +8,7 @@ export const runtime = 'edge'
 
 import { NextRequest } from 'next/server'
 import { getTokensForChain } from '@/lib/serverTokens'
+import { getRedis, REDIS_KEYS } from '@/lib/redis'
 
 const enc = new TextEncoder()
 
@@ -24,6 +25,19 @@ export async function GET(req: NextRequest) {
         // Tell browser to reconnect after 30 s if this connection closes
         ctrl.enqueue(enc.encode('retry: 30000\n\n'))
 
+        // 1. Try Redis (Railway worker keeps this fresh)
+        const redis = getRedis()
+        if (redis) {
+          try {
+            const cached = await redis.get<unknown>(REDIS_KEYS.tokens(chainId))
+            if (cached) {
+              ctrl.enqueue(sseEvent(cached))
+              return
+            }
+          } catch { /* Redis unavailable — fall through */ }
+        }
+
+        // 2. Fallback: fetch directly from Alcor
         const { data } = await getTokensForChain(chainId)
         ctrl.enqueue(sseEvent(data))
       } catch {

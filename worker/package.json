@@ -1,0 +1,21 @@
+{
+  "name": "antbubbles-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Always-on Railway worker — polls Alcor, writes token + chart data to Upstash Redis",
+  "scripts": {
+    "start": "tsx index.ts",
+    "dev": "tsx --watch index.ts"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.38.0",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
