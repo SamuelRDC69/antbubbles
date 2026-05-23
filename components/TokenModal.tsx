@@ -736,12 +736,9 @@ export default function TokenModal({ token, chain, onClose }: Props) {
       return globalHit
     }
 
-    try {
-      const r = await fetch(url, { signal })
-      const d = await r.json()
-      const raw: Candle[] = Array.isArray(d) ? d : []
-      // Pool candles return OHLC as strings — normalise to numbers
-      const result = source === 'lp'
+    // Helper: normalise raw candle array (pool candles use string OHLC)
+    const normalise = (raw: Candle[]): Candle[] =>
+      source === 'lp'
         ? raw.map(c => ({
             time:   c.time,
             open:   typeof c.open  === 'string' ? parseFloat(c.open)  : c.open,
@@ -751,12 +748,73 @@ export default function TokenModal({ token, chain, onClose }: Props) {
             volume: c.volume,
           }))
         : raw
+
+    // Build the direct Alcor URL as a browser-side fallback (Alcor blocks datacenter
+    // IPs but allows browser requests with CORS: access-control-allow-origin: *)
+    const alcorUrl = (() => {
+      const fromParam = view === 'line'
+        ? roundHour(Date.now() - LINE_WINDOW[range])
+        : candleFrom
+      const toParam   = view === 'line' ? roundHour(Date.now()) : undefined
+      if (source === 'lp' && pool) {
+        const u = new URL(`https://${chain.id}.alcor.exchange/api/v2/swap/pools/${pool.id}/candles`)
+        u.searchParams.set('resolution', res)
+        u.searchParams.set('from', String(fromParam))
+        if (toParam) u.searchParams.set('to', String(toParam))
+        if (pool.reversed) u.searchParams.set('reverse', 'true')
+        return u.toString()
+      } else if (source === 'spot' && token.ticker_id) {
+        const u = new URL(`https://${chain.id}.alcor.exchange/api/v2/tickers/${encodeURIComponent(token.ticker_id)}/charts`)
+        u.searchParams.set('resolution', res)
+        u.searchParams.set('from', String(fromParam))
+        if (toParam) u.searchParams.set('to', String(toParam))
+        return u.toString()
+      }
+      return null
+    })()
+
+    try {
+      const r = await fetch(url, { signal })
+      const d = await r.json()
+      const raw: Candle[] = Array.isArray(d) ? d : []
+
+      // If server returned empty (Redis miss + Alcor blocked from datacenter),
+      // fall back to fetching Alcor directly from the browser — CORS is open.
+      if (raw.length === 0 && alcorUrl) {
+        const r2 = await fetch(alcorUrl, { signal })
+        if (r2.ok) {
+          const d2 = await r2.json()
+          const raw2: Candle[] = Array.isArray(d2) ? d2 : []
+          if (raw2.length > 0) {
+            const result2 = normalise(raw2)
+            setChart(url, result2)
+            cacheRef.current.set(cacheKey, result2)
+            return result2
+          }
+        }
+      }
+
+      const result = normalise(raw)
       // Store in global cache so re-opening this token is instant
       setChart(url, result)
       cacheRef.current.set(cacheKey, result)
       return result
     } catch {
       if (signal.aborted) throw signal
+      // Last-ditch direct Alcor fetch (server completely unreachable)
+      if (alcorUrl) {
+        try {
+          const r2 = await fetch(alcorUrl)
+          if (r2.ok) {
+            const d2 = await r2.json()
+            const raw2: Candle[] = Array.isArray(d2) ? d2 : []
+            const result2 = normalise(raw2)
+            setChart(url, result2)
+            cacheRef.current.set(cacheKey, result2)
+            return result2
+          }
+        } catch { /* non-fatal */ }
+      }
       return []
     }
   }, [token, chain])
@@ -812,19 +870,49 @@ export default function TokenModal({ token, chain, onClose }: Props) {
         return
       }
 
+      // Direct Alcor URL as browser-side fallback (datacenter IPs are blocked)
+      const alcorFallback = defaultPool
+        ? (() => {
+            const u = new URL(`https://${chain.id}.alcor.exchange/api/v2/swap/pools/${defaultPool.id}/candles`)
+            u.searchParams.set('resolution', resolution)
+            u.searchParams.set('from', String(from))
+            u.searchParams.set('to', String(to))
+            if (defaultPool.reversed) u.searchParams.set('reverse', 'true')
+            return u.toString()
+          })()
+        : token.ticker_id
+          ? (() => {
+              const u = new URL(`https://${chain.id}.alcor.exchange/api/v2/tickers/${encodeURIComponent(token.ticker_id!)}/charts`)
+              u.searchParams.set('resolution', resolution)
+              u.searchParams.set('from', String(from))
+              u.searchParams.set('to', String(to))
+              return u.toString()
+            })()
+          : null
+
+      const normCandles = (raw: Candle[]): Candle[] =>
+        defaultPool
+          ? raw.map((c: Candle) => ({
+              ...c,
+              open:  typeof c.open  === 'string' ? parseFloat(c.open  as unknown as string) : c.open,
+              high:  typeof c.high  === 'string' ? parseFloat(c.high  as unknown as string) : c.high,
+              low:   typeof c.low   === 'string' ? parseFloat(c.low   as unknown as string) : c.low,
+              close: typeof c.close === 'string' ? parseFloat(c.close as unknown as string) : c.close,
+            }))
+          : raw
+
       fetch(url, { signal: ctrl.signal })
         .then(res => res.json())
-        .then((d: unknown) => {
-          const raw = Array.isArray(d) ? d : []
-          const candles: Candle[] = defaultPool
-            ? raw.map((c: Candle) => ({
-                ...c,
-                open:  typeof c.open  === 'string' ? parseFloat(c.open  as unknown as string) : c.open,
-                high:  typeof c.high  === 'string' ? parseFloat(c.high  as unknown as string) : c.high,
-                low:   typeof c.low   === 'string' ? parseFloat(c.low   as unknown as string) : c.low,
-                close: typeof c.close === 'string' ? parseFloat(c.close as unknown as string) : c.close,
-              }))
-            : raw
+        .then(async (d: unknown) => {
+          let raw = Array.isArray(d) ? d : []
+          // Fallback: server returned empty → fetch directly from Alcor in browser
+          if (raw.length === 0 && alcorFallback) {
+            try {
+              const r2 = await fetch(alcorFallback, { signal: ctrl.signal })
+              if (r2.ok) raw = await r2.json().then(x => Array.isArray(x) ? x : []).catch(() => [])
+            } catch { /* non-fatal */ }
+          }
+          const candles = normCandles(raw as Candle[])
           if (candles.length >= 2) {
             const pct = (candles[candles.length-1].close - candles[0].close) / candles[0].close * 100
             setPerfs(prev => ({ ...prev, [r]: pct }))
