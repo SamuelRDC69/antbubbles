@@ -608,12 +608,16 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
 
 // Smoothly tweens node.radius toward node.targetRadius each tick so that
 // viewport resize and token updates animate rather than snap.
+// Radius is kept at integer pixels to prevent micro-collisions: if radius
+// were a sub-pixel float that grows 0.1 px/tick, it would repeatedly clip
+// into a neighbour and trigger collision corrections every frame — jitter.
+// Integer steps mean the radius is stable between 1-px jumps.
 function buildRadiusTweenForce(nodesRef: React.RefObject<SimNode[]>) {
   return function radiusTweenForce() {
     for (const n of nodesRef.current!) {
       const diff = n.targetRadius - n.radius
-      if (Math.abs(diff) < 0.3) { n.radius = n.targetRadius; continue }
-      n.radius += diff * 0.08
+      if (Math.abs(diff) < 1) { n.radius = n.targetRadius; continue }
+      n.radius = Math.round(n.radius + diff * 0.08)
     }
   }
 }
@@ -637,15 +641,17 @@ function buildHardCollideForce(
   nodesRef: React.RefObject<SimNode[]>,
   dimRef:   React.RefObject<{ width: number; height: number }>,
 ) {
-  const GAP       = 4     // px gap between bubble rings (prevents visual ring merging)
-  const VEL_SCALE = 0.25
+  const GAP = 4   // px gap between bubble rings (prevents visual ring merging)
+
+  // VEL_SCALE removed (was 0.25). Position corrections alone maintain separation.
+  // Adding velocity from each correction caused accumulation: with 8 iterations and
+  // multiple overlapping pairs, velocities stacked into visible multi-pixel jumps.
 
   return function hardCollideForce() {
     const nodes             = nodesRef.current!
     const { width, height } = dimRef.current!
-    // Fewer iterations on mobile: less correction per tick reduces micro-oscillation
-    // in tight spaces, and cuts CPU so the GPU can maintain 60fps.
-    const ITERATIONS = width < 600 ? 3 : 8
+    // Fewer iterations on mobile: less over-correction in tight spaces, lower CPU.
+    const ITERATIONS = width < 600 ? 3 : 5
 
     for (let iter = 0; iter < ITERATIONS; iter++) {
       for (let i = 0; i < nodes.length; i++) {
@@ -669,12 +675,10 @@ function buildHardCollideForce(
 
           const aPad = a.radius + GAP
           const bPad = b.radius + GAP
-          const ax0  = a.x ?? 0,  ay0 = a.y ?? 0
-          const bx0  = b.x ?? 0,  by0 = b.y ?? 0
 
           // Proposed corrections (split evenly)
-          const aWantX = ax0 - nx * half,  aWantY = ay0 - ny * half
-          const bWantX = bx0 + nx * half,  bWantY = by0 + ny * half
+          const aWantX = (a.x ?? 0) - nx * half,  aWantY = (a.y ?? 0) - ny * half
+          const bWantX = (b.x ?? 0) + nx * half,  bWantY = (b.y ?? 0) + ny * half
 
           // Clamp to walls
           const aNewX = Math.max(aPad, Math.min(width  - aPad, aWantX))
@@ -694,11 +698,6 @@ function buildHardCollideForce(
           a.y = Math.max(aPad, Math.min(height - aPad, a.y!))
           b.x = Math.max(bPad, Math.min(width  - bPad, b.x!))
           b.y = Math.max(bPad, Math.min(height - bPad, b.y!))
-
-          a.vx! += (a.x! - ax0) * VEL_SCALE
-          a.vy! += (a.y! - ay0) * VEL_SCALE
-          b.vx! += (b.x! - bx0) * VEL_SCALE
-          b.vy! += (b.y! - by0) * VEL_SCALE
         }
       }
     }
