@@ -88,7 +88,10 @@ function drawBubble(
   const alpha  = isDimmed ? 0.18 : 1
 
   ctx.save()
-  ctx.translate(x, y)   // ← all coordinates below are relative to bubble centre
+  // Round the translate so every draw call lands on integer pixels.
+  // Canvas arcs are anti-aliased at any integer position so circles still
+  // look smooth; text/images have no float pixel-snap jitter at all.
+  ctx.translate(Math.round(x), Math.round(y))   // ← bubble centre at integer pixel
   ctx.globalAlpha = alpha
 
   // Outer pulse ring on hover
