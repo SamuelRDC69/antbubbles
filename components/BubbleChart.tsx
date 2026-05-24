@@ -120,10 +120,14 @@ function drawBubble(
   ctx.arc(0, 0, drawR * 0.88, 0, Math.PI * 2)
   ctx.clip()
 
-  // ── Content tiers (all coordinates relative to centre = 0, 0) ───────────
-  // Tiny  (< 16px): logo or 2-letter abbrev only
-  // Small (16-27px): logo + symbol
-  // Full  (≥ 28px): logo (larger, upper half) + symbol + metric value
+  // Snap the coordinate origin to the integer pixel grid so text/logos render
+  // crisply. The arc above is drawn at float position (sub-pixel smooth edge).
+  // Without this, text screen position = float(x) + integer(cursorY) = float,
+  // meaning glyph anti-aliasing shifts subtly every frame as the bubble drifts.
+  // Banterbubbles avoids this by drawing all content into an offscreen canvas
+  // at integer centre (radius+3, radius+3) — we achieve the same effect with a
+  // micro-translate that cancels the fractional part of the bubble centre.
+  ctx.translate(Math.round(x) - x, Math.round(y) - y)
 
   // ── Content tiers ────────────────────────────────────────────────────────
   // Tiny   (< 16px)  : logo only — or 2-char abbrev if no logo
