@@ -329,8 +329,8 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
           ...t,
           radius:       p ? (nodesRef.current.find(n => n.id === t.id)?.radius ?? r) : r,
           targetRadius: r,
-          x:  p?.x  ?? width  / 2 + (Math.random() - 0.5) * width  * 0.5,
-          y:  p?.y  ?? height / 2 + (Math.random() - 0.5) * height * 0.5,
+          x:  p?.x  ?? width  / 2 + (Math.random() - 0.5) * width  * 0.85,
+          y:  p?.y  ?? height / 2 + (Math.random() - 0.5) * height * 0.85,
           vx: p?.vx ?? 0,
           vy: p?.vy ?? 0,
           fx: null, fy: null,
@@ -763,12 +763,23 @@ function buildCoinForce(
         }
       }
 
+      // ── Always clamp inside canvas ──────────────────────────────────────
+      // Hard boundary — prevents bubbles from drifting off-screen regardless
+      // of whether they're colliding or got the drift impulse this tick.
+      a.x = Math.max(a.radius, Math.min(maxX - a.radius, a.x))
+      a.y = Math.max(a.radius, Math.min(maxY - a.radius, a.y))
+
+      // ── Gravity toward canvas centre (mobile only) ────────────────────
+      // On mobile the canvas is narrow and tall, so bubbles can drift to
+      // the bottom corner leaving the top empty. This gentle pull keeps
+      // the cluster centred. Desktop doesn't need it — fill is dense enough.
+      if (width < 600) {
+        a.vx! += (width  / 2 - a.x) * 0.015
+        a.vy! += (height / 2 - a.y) * 0.015
+      }
+
       // ── Drift impulse ───────────────────────────────────────────────────
       if (a.isColliding || Math.random() < 0.3) {
-        // Clamp inside canvas
-        a.x = Math.max(a.radius, Math.min(maxX - a.radius, a.x))
-        a.y = Math.max(a.radius, Math.min(maxY - a.radius, a.y))
-
         // Direction held for ~100 ticks; 1 % chance of new heading each tick
         if (a._direction === undefined || Math.random() < 0.01) {
           a._direction = Math.random() * Math.PI * 2

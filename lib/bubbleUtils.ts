@@ -96,26 +96,26 @@ export function computeRadii(
   if (containerWidth > 0 && containerHeight > 0) {
     const isMobile = containerWidth < 600
 
-    // Mobile: 65% fill — fills ~15% more screen than the old 50%.
+    // Mobile: 90% fill — pack bubbles tightly so they spread to fill the canvas.
     // Desktop: 80% fill — dense visual without bouncing.
-    const fillTarget = isMobile ? 0.65 : 0.80
+    const fillTarget = isMobile ? 0.90 : 0.80
 
-    // Mobile ratio 6 (vs desktop 8) compresses the size range so small bubbles
-    // grow proportionally more than large ones when fill increases.
-    const ratio = isMobile ? 6 : 8
-    const r     = ratio - 1  // = 7
+    // Mobile ratio 5 (vs desktop 8): tighter size range so small bubbles are
+    // proportionally much larger relative to the big ones.
+    const ratio = isMobile ? 5 : 8
+    const r     = ratio - 1  // mobile=4, desktop=7
     const denom = tokens.length + 2 * r * sumN + r * r * sumN2
     const rawMin = Math.sqrt(containerWidth * containerHeight * fillTarget / (Math.PI * denom))
 
-    // Max-bubble cap: ~60% of the previous cap so no single token dominates.
-    // (3% mobile / 6% desktop of canvas area).
-    const maxSinglePct = isMobile ? 0.03 : 0.06
+    // Max-bubble cap: raised to 10% on mobile (was 3%) so the largest bubbles
+    // can actually grow to fill space. Desktop stays at 6%.
+    const maxSinglePct = isMobile ? 0.10 : 0.06
     const areaMaxR     = Math.round(Math.sqrt(containerWidth * containerHeight * maxSinglePct / Math.PI))
-    const maxCap       = Math.round(Math.min(containerWidth, containerHeight) * 0.30)
+    const maxCap       = Math.round(Math.min(containerWidth, containerHeight) * 0.40)
 
-    // Allow scaledMin as small as 8px on mobile (was 6) — ensures tiny bubbles
-    // are a bit more visible; desktop floor stays at 10px.
-    scaledMin = Math.max(isMobile ? 8 : 10, Math.round(rawMin))
+    // Allow scaledMin as small as 10px on mobile — ensures tiny bubbles
+    // are meaningfully visible; desktop floor stays at 10px.
+    scaledMin = Math.max(10, Math.round(rawMin))
     // ×0.85 cap — reduce largest bubbles by 15% so they don't dominate the canvas
     scaledMax = Math.round(Math.min(maxCap, areaMaxR, Math.max(scaledMin + 8, Math.round(rawMin * ratio))) * 0.85)
   }
