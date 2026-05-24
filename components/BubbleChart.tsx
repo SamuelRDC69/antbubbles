@@ -60,101 +60,70 @@ function loadImage(url: string): Promise<HTMLImageElement | null> {
   })
 }
 
-// ── Draw one bubble ───────────────────────────────────────────────────────────
-function drawBubble(
+// ── Offscreen-canvas helpers ──────────────────────────────────────────────────
+// Matches banterbubbles.com exactly: each bubble is pre-rendered into a small
+// dedicated canvas (2·radius+6 px², centred at integer (radius+3, radius+3)),
+// then composited onto the main canvas with ctx.drawImage at the float position.
+//
+// Why this eliminates jitter:
+//   Old approach — fillText called on main canvas at float coordinates every
+//   frame → browser re-rasterises each glyph at a slightly different sub-pixel
+//   offset → anti-aliasing pattern changes frame-to-frame → shimmering jitter.
+//
+//   New approach — text/logos are rendered once into the offscreen canvas at an
+//   integer physical-pixel centre; only regenerated when radius or visible data
+//   changes. drawImage composites the bitmap at the float position via bilinear
+//   interpolation — the whole image shifts as a unit, no per-glyph rasterisation.
+
+type BubbleCanvasEntry = { key: string; canvas: HTMLCanvasElement }
+
+// Paint bubble content into a ctx whose origin is already at the bubble centre.
+// Radius is always integer here (the offscreen canvas is sized to match it).
+function paintBubbleContent(
   ctx:         CanvasRenderingContext2D,
   node:        SimNode,
   img:         HTMLImageElement | null | undefined,
-  isHovered:   boolean,
-  isDragging:  boolean,
-  isDimmed:    boolean,
   displayMode: DisplayMode,
 ) {
-  const { x = 0, y = 0, radius, symbol } = node
+  const { symbol, radius: r } = node   // r is always integer
   const fill = bubbleFillColorForMode(node, displayMode)
   const ring = ringColorForMode(node, displayMode)
 
-  // drawR: float for smooth anti-aliased arcs.
-  // drawRi: integer for all text/image layout so sizes are frame-stable.
-  // ctx.translate(x, y) puts the bubble centre at (0,0) in local space —
-  // every subsequent draw call uses offsets relative to centre, so the clip
-  // path and all content are always in perfect alignment no matter the
-  // sub-pixel position of the bubble. This eliminates the ±0.5 px drift that
-  // made logos/text appear to shift inside the ring each frame.
-  const drawR  = isDragging ? radius : isHovered ? radius * 1.07 : radius
-  const drawRi = Math.round(drawR)
-  const alpha  = isDimmed ? 0.18 : 1
-
-  ctx.save()
-  ctx.translate(x, y)   // float — sub-pixel anti-aliasing keeps arcs smooth
-  ctx.globalAlpha = alpha
-
-  // Inner rim only — no external glow.
-  // Two fully-opaque stops so canvas does a clean linear blend with no
-  // alpha-seam artefacts: pure dark fill up to rimStart, then smooth
-  // transition to the ring colour at the edge.
-  ctx.shadowBlur = 0
-
-  const rimStart = isDragging ? 0.68 : 0.82   // drag = wider/brighter rim
-  const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, drawR)
-  grad.addColorStop(0,        fill)
-  grad.addColorStop(rimStart, fill)
-  grad.addColorStop(1.0,      ring)
-
+  // Background: dark fill → ring colour at edge
+  const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r)
+  grad.addColorStop(0,    fill)
+  grad.addColorStop(0.82, fill)
+  grad.addColorStop(1.0,  ring)
   ctx.beginPath()
-  ctx.arc(0, 0, drawR, 0, Math.PI * 2)
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
   ctx.fillStyle = grad
   ctx.fill()
 
-  // Hover: white encapsulating circle drawn just outside the bubble
-  if (isHovered && !isDimmed) {
-    ctx.beginPath()
-    ctx.arc(0, 0, drawR + 3, 0, Math.PI * 2)
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)'
-    ctx.lineWidth   = 2
-    ctx.stroke()
-  }
-
-  // Clip content to bubble interior (inside the rim)
+  // Content clipped to inner 88% so the rim stays visible
+  ctx.save()
   ctx.beginPath()
-  ctx.arc(0, 0, drawR * 0.88, 0, Math.PI * 2)
+  ctx.arc(0, 0, r * 0.88, 0, Math.PI * 2)
   ctx.clip()
 
-  // Snap the coordinate origin to the integer pixel grid so text/logos render
-  // crisply. The arc above is drawn at float position (sub-pixel smooth edge).
-  // Without this, text screen position = float(x) + integer(cursorY) = float,
-  // meaning glyph anti-aliasing shifts subtly every frame as the bubble drifts.
-  // Banterbubbles avoids this by drawing all content into an offscreen canvas
-  // at integer centre (radius+3, radius+3) — we achieve the same effect with a
-  // micro-translate that cancels the fractional part of the bubble centre.
-  ctx.translate(Math.round(x) - x, Math.round(y) - y)
-
-  // ── Content tiers ────────────────────────────────────────────────────────
-  // Tiny   (< 16px)  : logo only — or 2-char abbrev if no logo
-  // Small  (16-30px) : logo only — or symbol name if no logo  (no % text)
-  // Full   (> 30px)  : logo + symbol + metric value
-
-  if (drawRi < 16) {
-    // Tiny: just the logo (or 2-char abbreviation)
-    ctx.globalAlpha = alpha
+  if (r < 16) {
+    // Tiny: logo or 2-char abbrev
     if (img) {
-      const s = Math.round(drawRi * 1.1)
+      const s = Math.round(r * 1.1)
       ctx.drawImage(img, -(s >> 1), -(s >> 1), s, s)
     } else {
-      ctx.font         = `700 ${Math.max(6, Math.round(drawRi * 0.55))}px Inter, system-ui, sans-serif`
+      ctx.font         = `700 ${Math.max(6, Math.round(r * 0.55))}px Inter, system-ui, sans-serif`
       ctx.fillStyle    = '#ffffff'
       ctx.textAlign    = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(symbol.slice(0, 2), 0, 0)
     }
-  } else if (drawRi <= 30) {
-    // Small: logo only — symbol name fallback if no logo
-    ctx.globalAlpha = alpha
+  } else if (r <= 30) {
+    // Small: logo only — symbol name fallback
     if (img) {
-      const s = Math.round(drawRi * 1.1)
+      const s = Math.round(r * 1.1)
       ctx.drawImage(img, -(s >> 1), -(s >> 1), s, s)
     } else {
-      ctx.font         = `700 ${Math.round(Math.max(7, drawRi * 0.38))}px Inter, system-ui, sans-serif`
+      ctx.font         = `700 ${Math.round(Math.max(7, r * 0.38))}px Inter, system-ui, sans-serif`
       ctx.fillStyle    = '#ffffff'
       ctx.textAlign    = 'center'
       ctx.textBaseline = 'middle'
@@ -162,28 +131,21 @@ function drawBubble(
     }
   } else {
     // Full: logo + symbol + metric value
-    // logoH is derived from symFontSize and is 25% larger than before (×1.5625)
-    // so it reads as the dominant identifier above the text.
-    const symFontSize = Math.round(Math.max(9,  Math.min(drawRi * 0.32, 40)))
-    const valFontSize = Math.round(Math.max(7,  Math.min(drawRi * 0.20, 18)))
-    const logoH       = Math.round(symFontSize * 1.5625)  // 25% larger than prev 1.25×
+    const symFontSize = Math.round(Math.max(9,  Math.min(r * 0.32, 40)))
+    const valFontSize = Math.round(Math.max(7,  Math.min(r * 0.20, 18)))
+    const logoH       = Math.round(symFontSize * 1.5625)
     const hasLogo     = !!img
-
-    const showValue = drawRi >= 40
-    const gap    = Math.round(symFontSize * 0.12)
-    const textH  = symFontSize + (showValue ? gap + valFontSize : 0)
-    const totalH = hasLogo ? logoH + gap + textH : textH
-
-    // Vertically centre the content group
-    let cursorY = Math.round(-totalH / 2)
+    const showValue   = r >= 40
+    const gap         = Math.round(symFontSize * 0.12)
+    const textH       = symFontSize + (showValue ? gap + valFontSize : 0)
+    const totalH      = hasLogo ? logoH + gap + textH : textH
+    let   cursorY     = Math.round(-totalH / 2)
 
     if (hasLogo) {
-      ctx.globalAlpha = alpha
       ctx.drawImage(img!, -(logoH >> 1), cursorY, logoH, logoH)
       cursorY += logoH + gap
     }
 
-    ctx.globalAlpha  = alpha
     ctx.font         = `700 ${symFontSize}px Inter, system-ui, sans-serif`
     ctx.fillStyle    = '#ffffff'
     ctx.textAlign    = 'center'
@@ -192,13 +154,83 @@ function drawBubble(
     cursorY += symFontSize + gap
 
     if (showValue) {
-      ctx.globalAlpha  = isDimmed ? 0.18 : 0.9
+      ctx.globalAlpha  = 0.9
       ctx.font         = `600 ${valFontSize}px Inter, system-ui, sans-serif`
       ctx.fillStyle    = metricTextColor(node, displayMode)
       ctx.textAlign    = 'center'
       ctx.textBaseline = 'top'
       ctx.fillText(formatMetricValue(node, displayMode), 0, cursorY)
     }
+  }
+
+  ctx.restore()
+}
+
+// Returns a cached offscreen canvas for this bubble, regenerating only when
+// radius, fill colour, or the displayed metric value actually changes.
+function getOrCreateBubbleCanvas(
+  node:        SimNode,
+  img:         HTMLImageElement | null | undefined,
+  displayMode: DisplayMode,
+  dpr:         number,
+  cache:       Map<string, BubbleCanvasEntry>,
+): HTMLCanvasElement {
+  const fill  = bubbleFillColorForMode(node, displayMode)
+  const val   = formatMetricValue(node, displayMode)
+  const key   = `${node.radius}_${fill}_${val}_${img ? 1 : 0}_${dpr}`
+
+  const entry = cache.get(node.id)
+  if (entry && entry.key === key) return entry.canvas
+
+  // (Re)build offscreen canvas — size matches banterbubbles: 2·r + 6 (3px padding each side)
+  const r    = node.radius        // integer
+  const size = 2 * r + 6
+  const oc   = document.createElement('canvas')
+  oc.width   = size * dpr
+  oc.height  = size * dpr
+  const c2   = oc.getContext('2d')!
+  c2.scale(dpr, dpr)
+  c2.translate(r + 3, r + 3)     // integer centre — text always at integer physical pixels
+
+  paintBubbleContent(c2, node, img, displayMode)
+
+  cache.set(node.id, { key, canvas: oc })
+  return oc
+}
+
+// ── Draw one bubble (composite offscreen canvas + optional hover ring) ────────
+function drawBubble(
+  ctx:            CanvasRenderingContext2D,
+  node:           SimNode,
+  img:            HTMLImageElement | null | undefined,
+  isHovered:      boolean,
+  isDragging:     boolean,
+  isDimmed:       boolean,
+  displayMode:    DisplayMode,
+  offscreenCache: Map<string, BubbleCanvasEntry>,
+  dpr:            number,
+) {
+  const { x = 0, y = 0, radius } = node
+  const alpha = isDimmed ? 0.18 : 1
+
+  ctx.save()
+  ctx.globalAlpha = alpha
+
+  // Composite the pre-rendered bubble bitmap at the float simulation position.
+  // drawImage uses bilinear interpolation so the whole image shifts smoothly —
+  // no per-frame glyph rasterisation, no shimmering.
+  const bc   = getOrCreateBubbleCanvas(node, img, displayMode, dpr, offscreenCache)
+  const size = 2 * radius + 6
+  ctx.drawImage(bc, x - radius - 3, y - radius - 3, size, size)
+
+  // Hover ring drawn directly on the main canvas — slightly outside the bubble
+  if (isHovered && !isDimmed) {
+    const drawR = isDragging ? radius : radius * 1.07
+    ctx.beginPath()
+    ctx.arc(x, y, drawR + 3, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+    ctx.lineWidth   = 2
+    ctx.stroke()
   }
 
   ctx.restore()
@@ -211,6 +243,8 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
   const nodesRef     = useRef<SimNode[]>([])
   const rafRef       = useRef<number>(0)
   const imagesRef    = useRef<Map<string, HTMLImageElement | null>>(new Map())
+  // Per-bubble offscreen canvas cache — keyed by node.id, invalidated on radius/value change
+  const offscreenCacheRef = useRef<Map<string, BubbleCanvasEntry>>(new Map())
   const hoveredRef      = useRef<string | null>(null)
   const dragRef         = useRef<SimNode | null>(null)
   const mouseTargetRef  = useRef<{ x: number; y: number } | null>(null)
@@ -361,9 +395,9 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
 
     let running = true
     const { width, height } = dimensions
+    const dpr = window.devicePixelRatio || 1
 
     if (width > 0) {
-      const dpr = window.devicePixelRatio || 1
       canvas.width  = width  * dpr
       canvas.height = height * dpr
       ctx.scale(dpr, dpr)
@@ -382,15 +416,16 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       ctx.fillStyle = '#000000'
       ctx.fillRect(0, 0, width, height)
 
-      const nodes = nodesRef.current
-      const q     = searchQuery.toLowerCase()
+      const nodes  = nodesRef.current
+      const q      = searchQuery.toLowerCase()
+      const cache  = offscreenCacheRef.current
 
       for (const node of nodes) {
         const isHovered  = hoveredRef.current === node.id
         const isDragging = dragRef.current    === node
         const isMatch    = q.length > 1 && node.symbol.toLowerCase().includes(q)
         const isDimmed   = q.length > 1 && !isMatch
-        drawBubble(ctx, node, imagesRef.current.get(node.id), isHovered, isDragging, isDimmed, displayMode)
+        drawBubble(ctx, node, imagesRef.current.get(node.id), isHovered, isDragging, isDimmed, displayMode, cache, dpr)
       }
 
       // Signal skeleton can be hidden after first real frame with nodes
