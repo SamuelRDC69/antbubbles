@@ -116,14 +116,14 @@ export function computeRadii(
     // Allow scaledMin as small as 10px on mobile — ensures tiny bubbles
     // are meaningfully visible; desktop floor stays at 10px.
     scaledMin = Math.max(10, Math.round(rawMin))
-    // ×0.85 cap — reduce largest bubbles by 15% so they don't dominate the canvas
-    scaledMax = Math.round(Math.min(maxCap, areaMaxR, Math.max(scaledMin + 8, Math.round(rawMin * ratio))) * 0.85)
 
-    // Uniform 15% size boost on mobile — applied after all area math so it
-    // scales both ends of the range equally.
+    // Desktop: ×0.85 trims the largest bubbles so they don't dominate.
+    // Mobile:  ×1.15 boosts all bubbles 15% larger to fill more screen.
+    const sizeMultiplier = isMobile ? 1.15 : 0.85
+    scaledMax = Math.round(Math.min(maxCap, areaMaxR, Math.max(scaledMin + 8, Math.round(rawMin * ratio))) * sizeMultiplier)
+
     if (isMobile) {
       scaledMin = Math.round(scaledMin * 1.15)
-      scaledMax = Math.round(scaledMax * 1.15)
     }
   }
 
