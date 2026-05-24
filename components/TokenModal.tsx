@@ -635,7 +635,7 @@ function PoolSelector({
           {/* Column headers */}
           <div className="flex items-center px-3 py-1.5 border-b border-white/[0.06]">
             <span className="flex-1 text-[9px] font-semibold uppercase tracking-widest text-gray-600">Pair</span>
-            <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-600 text-right w-16">TVL</span>
+            <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-600 text-right pl-3 shrink-0">TVL</span>
           </div>
 
           {/* Pool rows */}
@@ -651,13 +651,13 @@ function PoolSelector({
               >
                 <div className="flex items-center gap-1 flex-1 min-w-0">
                   <PoolLogo src={tokenLogoUrl} symbol={tokenSymbol} size={16} />
-                  <span className="text-[11px] font-semibold text-white">{tokenSymbol}</span>
-                  <span className="text-[11px] text-gray-600">/</span>
+                  <span className="text-[11px] font-semibold text-white truncate max-w-[4rem]">{tokenSymbol}</span>
+                  <span className="text-[11px] text-gray-600 shrink-0">/</span>
                   <PoolLogo src={counterpartLogoUrl(p)} symbol={p.counterpartSymbol} size={16} />
-                  <span className="text-[11px] font-semibold text-gray-300">{p.counterpartSymbol}</span>
+                  <span className="text-[11px] font-semibold text-gray-300 truncate max-w-[4rem]">{p.counterpartSymbol}</span>
                   {isSelected && <span className="w-1 h-1 rounded-full bg-green-500 shrink-0 ml-0.5" />}
                 </div>
-                <span className="text-[11px] tabular-nums text-gray-400 w-16 text-right shrink-0">
+                <span className="text-[11px] tabular-nums text-gray-400 text-right pl-3 shrink-0 whitespace-nowrap">
                   {p.tvl > 0 ? formatVolume(p.tvl) : <span className="text-gray-700">—</span>}
                 </span>
               </button>
