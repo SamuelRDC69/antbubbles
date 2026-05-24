@@ -45,8 +45,12 @@ export function useTokens(
   const [loading,     setLoading]     = useState(seed.length === 0)
   const [error,       setError]       = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
-  // true = stream delivered a fresh message; false = error/reconnecting
-  const [connected,   setConnected]   = useState(false)
+  // true = stream is delivering fresh data; false = no data for >75 s (genuine outage).
+  // Driven by a watchdog timer, NOT by onerror — the server closes the connection after
+  // each SSE event (by design) which fires onerror on reconnect, so onerror cannot
+  // distinguish "normal reconnect" from "real network failure".
+  const [connected,    setConnected]   = useState(false)
+  const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const supplyMapRef   = useRef<Map<string, number>>(new Map())
   const supplyChainRef = useRef<string>('')
@@ -68,7 +72,13 @@ export function useTokens(
     setLoading(false)
     setLastUpdated(new Date())
     setError(null)
+
+    // Mark live and reset the 75-second watchdog.
+    // If no fresh message arrives within 75 s (2.5 × the 30-second retry interval)
+    // we consider the stream genuinely broken and flip to amber.
     setConnected(true)
+    if (liveTimerRef.current) clearTimeout(liveTimerRef.current)
+    liveTimerRef.current = setTimeout(() => setConnected(false), 75_000)
 
     lsWrite(chainId, withSupply)
 
@@ -127,8 +137,9 @@ export function useTokens(
 
     es.onerror = () => {
       // EventSource handles reconnection automatically.
-      // Only surface an error if we have no tokens yet (initial load failure).
-      setConnected(false)
+      // Do NOT touch connected here — the server closes the connection after every
+      // event (by design), which triggers onerror on each 30-second reconnect cycle.
+      // connected is managed by the watchdog timer above instead.
       setTokens(prev => {
         if (prev.length === 0) setError('Failed to load token data')
         if (prev.length > 0)  setLoading(false)
@@ -136,7 +147,10 @@ export function useTokens(
       })
     }
 
-    return () => es.close()
+    return () => {
+      es.close()
+      if (liveTimerRef.current) clearTimeout(liveTimerRef.current)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chain.id])
 
