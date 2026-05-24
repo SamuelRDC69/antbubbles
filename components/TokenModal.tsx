@@ -1004,6 +1004,14 @@ export default function TokenModal({ token, chain, onClose }: Props) {
       <div className="relative z-10 w-full max-w-5xl rounded-t-2xl sm:rounded-2xl overflow-y-auto overflow-x-hidden sm:overflow-hidden flex flex-col sm:flex-row shadow-2xl border border-white/[0.07]"
         style={{ maxHeight: '92vh', background: '#0a0f14' }}>
 
+        {/* Close button — fixed top-right of the modal sheet on all screen sizes */}
+        <button onClick={onClose}
+          className="absolute top-3 right-3 z-20 w-7 h-7 rounded-full bg-white/[0.07] hover:bg-white/[0.14] flex items-center justify-center text-gray-400 hover:text-white transition-all">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+
 
         {/* ── Left panel ─────────────────────────────────────────────────── */}
         <div className="w-full sm:w-64 shrink-0 flex flex-col border-b sm:border-b-0 sm:border-r border-white/[0.06]" style={{ background: '#0c1218' }}>
@@ -1021,13 +1029,6 @@ export default function TokenModal({ token, chain, onClose }: Props) {
                 <div className="text-white font-bold text-base leading-none">{token.symbol}</div>
                 <div className="text-gray-600 text-[10px] truncate mt-0.5">{token.contract}</div>
               </div>
-              {/* Close button — mobile only (desktop version lives in the chart toolbar) */}
-              <button onClick={onClose}
-                className="sm:hidden w-7 h-7 rounded-full bg-white/[0.07] hover:bg-white/[0.14] flex items-center justify-center text-gray-400 hover:text-white transition-all shrink-0">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
             </div>
             <div className="flex items-baseline justify-between">
               <PriceDisplay price={token.usd_price} />
@@ -1278,16 +1279,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
               ) : null
             )}
 
-            {/* Spacer */}
-            <div className="flex-1" />
 
-            {/* Close — desktop only; mobile close button is in the left panel header */}
-            <button onClick={onClose}
-              className="hidden sm:flex w-7 h-7 rounded-full bg-white/[0.07] hover:bg-white/[0.14] items-center justify-center text-gray-500 hover:text-white transition-all shrink-0">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
           </div>
 
           {/* ── Toolbar row 2: timeframe pills (always stable, never wraps) ─ */}
