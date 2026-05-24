@@ -7,9 +7,7 @@ import { TokenBubbleData, DisplayMode } from '@/lib/types'
 import {
   computeRadii,
   bubbleFillColorForMode,
-  bubbleFillLightForMode,
   ringColorForMode,
-  glowColorForMode,
   metricTextColor,
   formatMetricValue,
   formatPrice,
@@ -82,10 +80,8 @@ function drawBubble(
   displayMode: DisplayMode,
 ) {
   const { x = 0, y = 0, radius, symbol } = node
-  const fill      = bubbleFillColorForMode(node, displayMode)
-  const fillLight = bubbleFillLightForMode(node, displayMode)
-  const ring  = ringColorForMode(node, displayMode)
-  const glow  = glowColorForMode(node, displayMode)
+  const fill = bubbleFillColorForMode(node, displayMode)
+  const ring = ringColorForMode(node, displayMode)
 
   // drawR: float for smooth anti-aliased arcs.
   // drawRi: integer for all text/image layout so sizes are frame-stable.
@@ -102,44 +98,47 @@ function drawBubble(
   ctx.translate(Math.round(x), Math.round(y))
   ctx.globalAlpha = alpha
 
-  // Outer pulse halo on hover (thin, outside bubble)
-  if (isHovered && !isDimmed) {
-    ctx.beginPath()
-    ctx.arc(0, 0, drawR + 6, 0, Math.PI * 2)
-    ctx.strokeStyle = ring + '40'
-    ctx.lineWidth   = 1.5
-    ctx.shadowBlur  = 0
-    ctx.stroke()
-  }
+  // No external glow/bloom — Banter Bubbles style is inner rim only.
+  // The "ring" effect is entirely a radial gradient: pure dark interior that
+  // brightens to the ring colour in the outer ~18% of the radius.
+  ctx.shadowBlur = 0
 
-  // External glow bloom
-  ctx.shadowBlur  = isDragging ? radius * 1.2 : isHovered ? radius * 1.35 : radius * 0.85
-  ctx.shadowColor = glow
-
-  // Radial gradient fill:
-  //   • Subtle off-centre highlight in upper-left (3D depth)
-  //   • Dark interior for most of the radius
-  //   • Bright glowing rim in the outer ~15% — this IS the "ring", no stroke needed
-  const grad = ctx.createRadialGradient(
-    -drawR * 0.20, -drawR * 0.20, 0,  // highlight focal point (upper-left)
-    0, 0, drawR,                        // outer circle, centred
-  )
-  grad.addColorStop(0,    fillLight)          // subtle centre highlight
-  grad.addColorStop(0.45, fill)               // transitions to dark
-  grad.addColorStop(0.80, fill)               // stays dark through interior
-  grad.addColorStop(0.88, hexAlpha(ring, 0.35)) // rim glow begins
-  grad.addColorStop(0.95, hexAlpha(ring, 0.85)) // rim brightens
-  grad.addColorStop(1.0,  ring)               // full ring colour at very edge
+  const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, drawR)
+  grad.addColorStop(0,    fill)                   // pure dark centre
+  grad.addColorStop(0.78, fill)                   // stays dark through interior
+  grad.addColorStop(0.88, hexAlpha(ring, 0.30))   // inner rim glow begins
+  grad.addColorStop(0.95, hexAlpha(ring, 0.85))   // rim brightens
+  grad.addColorStop(1.0,  ring)                   // full ring colour at edge
 
   ctx.beginPath()
   ctx.arc(0, 0, drawR, 0, Math.PI * 2)
   ctx.fillStyle = grad
   ctx.fill()
-  ctx.shadowBlur = 0
 
-  // Clip content to bubble interior
+  // Hover: white encapsulating circle drawn just outside the bubble
+  if (isHovered && !isDimmed) {
+    ctx.beginPath()
+    ctx.arc(0, 0, drawR + 3, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+    ctx.lineWidth   = 2
+    ctx.stroke()
+  }
+
+  // Drag: slightly brighter inner rim to indicate active state
+  if (isDragging) {
+    const dragGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, drawR)
+    dragGrad.addColorStop(0.72, fill)
+    dragGrad.addColorStop(0.88, hexAlpha(ring, 0.6))
+    dragGrad.addColorStop(1.0,  ring)
+    ctx.beginPath()
+    ctx.arc(0, 0, drawR, 0, Math.PI * 2)
+    ctx.fillStyle = dragGrad
+    ctx.fill()
+  }
+
+  // Clip content to bubble interior (inside the rim)
   ctx.beginPath()
-  ctx.arc(0, 0, drawR * 0.92, 0, Math.PI * 2)
+  ctx.arc(0, 0, drawR * 0.88, 0, Math.PI * 2)
   ctx.clip()
 
   // ── Content tiers (all coordinates relative to centre = 0, 0) ───────────
