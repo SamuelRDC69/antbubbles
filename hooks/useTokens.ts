@@ -45,6 +45,8 @@ export function useTokens(
   const [loading,     setLoading]     = useState(seed.length === 0)
   const [error,       setError]       = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  // true = stream delivered a fresh message; false = error/reconnecting
+  const [connected,   setConnected]   = useState(false)
 
   const supplyMapRef   = useRef<Map<string, number>>(new Map())
   const supplyChainRef = useRef<string>('')
@@ -66,6 +68,7 @@ export function useTokens(
     setLoading(false)
     setLastUpdated(new Date())
     setError(null)
+    setConnected(true)
 
     lsWrite(chainId, withSupply)
 
@@ -125,6 +128,7 @@ export function useTokens(
     es.onerror = () => {
       // EventSource handles reconnection automatically.
       // Only surface an error if we have no tokens yet (initial load failure).
+      setConnected(false)
       setTokens(prev => {
         if (prev.length === 0) setError('Failed to load token data')
         if (prev.length > 0)  setLoading(false)
@@ -140,5 +144,5 @@ export function useTokens(
     setTokens(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
   }, [])
 
-  return { tokens, loading, error, lastUpdated, updateToken }
+  return { tokens, loading, error, lastUpdated, connected, updateToken }
 }

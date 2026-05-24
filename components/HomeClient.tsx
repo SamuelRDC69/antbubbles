@@ -32,7 +32,7 @@ export default function HomeClient({ initialTokens }: Props) {
   const [chartReady, setChartReady] = useState(false)
 
   // initialTokens seeds the default chain so the loading screen is never shown on first paint
-  const { tokens, loading, error, lastUpdated } = useTokens(chain, initialTokens)
+  const { tokens, loading, error, lastUpdated, connected } = useTokens(chain, initialTokens)
 
   const handleChainChange = useCallback((c: ChainConfig) => {
     setChain(c)
@@ -78,6 +78,7 @@ export default function HomeClient({ initialTokens }: Props) {
         displayMode={displayMode}
         searchQuery={searchQuery}
         lastUpdated={lastUpdated}
+        connected={connected}
         onChainChange={handleChainChange}
         onModeChange={setDisplayMode}
         onSearchChange={setSearchQuery}

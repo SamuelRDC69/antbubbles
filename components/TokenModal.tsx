@@ -1064,9 +1064,6 @@ export default function TokenModal({ token, chain, onClose }: Props) {
             {/* Market Cap */}
             {token.marketCapUsd && <StatRow label="Market Cap" value={formatVolume(token.marketCapUsd)} />}
 
-            {/* Fully Diluted Valuation — for EOSIO tokens issued supply = total supply */}
-            {token.marketCapUsd && <StatRow label="Fully Diluted Val." value={formatVolume(token.marketCapUsd)} />}
-
             {/* Circulating Supply */}
             {token.supply != null && token.supply > 0 && (
               <div className="flex items-center justify-between py-1.5 border-b border-white/[0.04]">

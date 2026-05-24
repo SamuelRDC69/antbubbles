@@ -30,6 +30,7 @@ interface Props {
   displayMode:    DisplayMode
   searchQuery:    string
   lastUpdated:    Date | null
+  connected:      boolean
   onChainChange:  (chain: ChainConfig) => void
   onModeChange:   (mode: DisplayMode) => void
   onSearchChange: (q: string) => void
@@ -40,6 +41,7 @@ export default function TopBar({
   displayMode,
   searchQuery,
   lastUpdated,
+  connected,
   onChainChange,
   onModeChange,
   onSearchChange,
@@ -145,10 +147,14 @@ export default function TopBar({
         )}
       </div>
 
-      {/* Live indicator */}
+      {/* Live indicator — green + pulse when stream is healthy, amber static when reconnecting */}
       <div className="flex items-center gap-1.5 shrink-0 hidden sm:flex">
-        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-        <span className="text-[11px] text-gray-500 uppercase tracking-wider font-medium">LIVE</span>
+        <span className={`w-1.5 h-1.5 rounded-full transition-colors duration-500 ${
+          connected ? 'bg-green-500 animate-pulse' : 'bg-amber-500'
+        }`} />
+        <span className={`text-[11px] uppercase tracking-wider font-medium transition-colors duration-500 ${
+          connected ? 'text-gray-500' : 'text-amber-600'
+        }`}>{connected ? 'LIVE' : 'CONNECTING…'}</span>
       </div>
 
       {/* Last updated */}
