@@ -138,12 +138,11 @@ function drawBubble(
     }
   } else {
     // All sizes derived from drawRi so layout never changes mid-tween.
-    // Logo is 63% of diameter (was 42%) — more prominent, matches the modal's
-    // round token image. Content is shifted up ~10% of radius so the logo
-    // occupies the upper half and text sits in the lower half.
-    const symFontSize = Math.round(Math.max(9,  Math.min(drawRi * 0.47, 60)))
-    const valFontSize = Math.round(Math.max(7,  Math.min(drawRi * 0.21, 20)))
-    const logoH       = Math.round(drawRi * 0.28)
+    // Logo is slightly taller than the symbol text so it reads as the primary
+    // identifier. symFontSize drives the scale; logoH is derived from it.
+    const symFontSize = Math.round(Math.max(9,  Math.min(drawRi * 0.32, 40)))
+    const valFontSize = Math.round(Math.max(7,  Math.min(drawRi * 0.20, 18)))
+    const logoH       = Math.round(symFontSize * 1.25)   // ~25% taller than symbol text
     const hasLogo     = !!img
 
     const showValue = drawRi >= 22
