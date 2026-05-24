@@ -44,16 +44,6 @@ interface TooltipState {
   token: SimNode
 }
 
-// ── Colour helper ─────────────────────────────────────────────────────────────
-// Returns an rgba() string from a 6-digit hex colour + an alpha 0–1.
-// Used to build gradient stops with partial transparency from hex ring colours.
-function hexAlpha(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return `rgba(${r},${g},${b},${alpha})`
-}
-
 // ── Image loader ──────────────────────────────────────────────────────────────
 // Logos are served by our own /api/logo proxy (cached 24h) so all requests
 // can fire in parallel — no stagger needed.
@@ -98,17 +88,17 @@ function drawBubble(
   ctx.translate(Math.round(x), Math.round(y))
   ctx.globalAlpha = alpha
 
-  // No external glow/bloom — Banter Bubbles style is inner rim only.
-  // The "ring" effect is entirely a radial gradient: pure dark interior that
-  // brightens to the ring colour in the outer ~18% of the radius.
+  // Inner rim only — no external glow.
+  // Two fully-opaque stops so canvas does a clean linear blend with no
+  // alpha-seam artefacts: pure dark fill up to rimStart, then smooth
+  // transition to the ring colour at the edge.
   ctx.shadowBlur = 0
 
+  const rimStart = isDragging ? 0.68 : 0.82   // drag = wider/brighter rim
   const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, drawR)
-  grad.addColorStop(0,    fill)                   // pure dark centre
-  grad.addColorStop(0.78, fill)                   // stays dark through interior
-  grad.addColorStop(0.88, hexAlpha(ring, 0.30))   // inner rim glow begins
-  grad.addColorStop(0.95, hexAlpha(ring, 0.85))   // rim brightens
-  grad.addColorStop(1.0,  ring)                   // full ring colour at edge
+  grad.addColorStop(0,        fill)
+  grad.addColorStop(rimStart, fill)
+  grad.addColorStop(1.0,      ring)
 
   ctx.beginPath()
   ctx.arc(0, 0, drawR, 0, Math.PI * 2)
@@ -122,18 +112,6 @@ function drawBubble(
     ctx.strokeStyle = 'rgba(255,255,255,0.85)'
     ctx.lineWidth   = 2
     ctx.stroke()
-  }
-
-  // Drag: slightly brighter inner rim to indicate active state
-  if (isDragging) {
-    const dragGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, drawR)
-    dragGrad.addColorStop(0.72, fill)
-    dragGrad.addColorStop(0.88, hexAlpha(ring, 0.6))
-    dragGrad.addColorStop(1.0,  ring)
-    ctx.beginPath()
-    ctx.arc(0, 0, drawR, 0, Math.PI * 2)
-    ctx.fillStyle = dragGrad
-    ctx.fill()
   }
 
   // Clip content to bubble interior (inside the rim)
