@@ -998,10 +998,10 @@ export default function TokenModal({ token, chain, onClose }: Props) {
   const RANGES: ChartRange[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M']
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:p-4"
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:p-4 overflow-hidden"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-      <div className="relative z-10 w-full max-w-5xl rounded-t-2xl sm:rounded-2xl overflow-y-auto sm:overflow-hidden flex flex-col sm:flex-row shadow-2xl border border-white/[0.07]"
+      <div className="relative z-10 w-full max-w-5xl rounded-t-2xl sm:rounded-2xl overflow-y-auto overflow-x-hidden sm:overflow-hidden flex flex-col sm:flex-row shadow-2xl border border-white/[0.07]"
         style={{ maxHeight: '92vh', background: '#0a0f14' }}>
 
 
@@ -1017,10 +1017,17 @@ export default function TokenModal({ token, chain, onClose }: Props) {
                 <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
                   style={{ background: ringCol }}>{token.symbol.slice(0, 2)}</div>
               )}
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="text-white font-bold text-base leading-none">{token.symbol}</div>
                 <div className="text-gray-600 text-[10px] truncate mt-0.5">{token.contract}</div>
               </div>
+              {/* Close button — mobile only (desktop version lives in the chart toolbar) */}
+              <button onClick={onClose}
+                className="sm:hidden w-7 h-7 rounded-full bg-white/[0.07] hover:bg-white/[0.14] flex items-center justify-center text-gray-400 hover:text-white transition-all shrink-0">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
             <div className="flex items-baseline justify-between">
               <PriceDisplay price={token.usd_price} />
@@ -1202,7 +1209,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
         <div className="flex-1 flex flex-col min-w-0">
 
           {/* ── Toolbar row 1: chart-type controls + close button ───────── */}
-          <div className="flex items-center gap-2 px-4 pt-2.5 pb-2 border-b border-white/[0.03]">
+          <div className="flex items-center gap-2 px-4 pt-2.5 pb-2 border-b border-white/[0.03] overflow-x-auto scrollbar-none">
 
             {/* Line / Candles / Depth */}
             <div className="flex items-center bg-white/[0.05] rounded-lg p-0.5 gap-0.5">
@@ -1274,9 +1281,9 @@ export default function TokenModal({ token, chain, onClose }: Props) {
             {/* Spacer */}
             <div className="flex-1" />
 
-            {/* Close — lives in the toolbar row so it never floats over content */}
+            {/* Close — desktop only; mobile close button is in the left panel header */}
             <button onClick={onClose}
-              className="w-7 h-7 rounded-full bg-white/[0.07] hover:bg-white/[0.14] flex items-center justify-center text-gray-500 hover:text-white transition-all shrink-0">
+              className="hidden sm:flex w-7 h-7 rounded-full bg-white/[0.07] hover:bg-white/[0.14] items-center justify-center text-gray-500 hover:text-white transition-all shrink-0">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
