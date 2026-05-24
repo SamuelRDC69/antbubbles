@@ -34,9 +34,10 @@ interface SimNode extends TokenBubbleData {
   fy:           number | null
   radius:       number
   targetRadius: number
+  // Per-bubble drift direction (radians) — held for ~100 ticks, then randomly reset
+  _direction?:  number
+  isColliding?: boolean
 }
-
-interface WanderNode extends SimNode { _phase?: number; _freq?: number }
 
 interface TooltipState {
   x: number
@@ -287,16 +288,13 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       // .stop(): disable D3's internal RAF timer — we tick manually inside our
       // own RAF draw loop so physics and rendering are always in sync (one tick
       // per drawn frame, no stale-position draws or double-tick frames).
-      const isMobileSim = width < 600
       simRef.current = forceSimulation(nodes)
         .alphaDecay(0)
         .alphaTarget(0.3)
-        .velocityDecay(isMobileSim ? 0.52 : 0.40)
+        .velocityDecay(0.4)   // D3 default — matches banterbubbles.com exactly
         .force('radiusTween', buildRadiusTweenForce(nodesRef))
         .force('mouseSpring', buildMouseSpringForce(nodesRef, dragRef, mouseTargetRef))
-        .force('collide',     buildHardCollideForce(nodesRef, dimRef))
-        .force('boundary',    buildBoundaryForce(nodesRef, dimRef))
-        .force('wander',      buildWanderForce(nodesRef, dragRef, dimRef))
+        .force('coin',        buildCoinForce(nodesRef, dragRef, dimRef))
         .stop()  // manual RAF ticking below
 
       // First ever load has no previous positions — start at high energy so
@@ -649,148 +647,82 @@ function buildMouseSpringForce(
   }
 }
 
-function buildHardCollideForce(
-  nodesRef: React.RefObject<SimNode[]>,
-  dimRef:   React.RefObject<{ width: number; height: number }>,
-) {
-  const GAP = 2   // px gap between bubble rings (prevents visual ring merging)
-
-  // VEL_SCALE removed (was 0.25). Position corrections alone maintain separation.
-  // Adding velocity from each correction caused accumulation: with 8 iterations and
-  // multiple overlapping pairs, velocities stacked into visible multi-pixel jumps.
-
-  return function hardCollideForce() {
-    const nodes             = nodesRef.current!
-    const { width, height } = dimRef.current!
-    // Fewer iterations on mobile: less over-correction in tight spaces, lower CPU.
-    const ITERATIONS = width < 600 ? 3 : 5
-
-    for (let iter = 0; iter < ITERATIONS; iter++) {
-      for (let i = 0; i < nodes.length; i++) {
-        const a = nodes[i]
-
-        for (let j = i + 1; j < nodes.length; j++) {
-          const b = nodes[j]
-
-          const dx     = (b.x ?? 0) - (a.x ?? 0)
-          const dy     = (b.y ?? 0) - (a.y ?? 0)
-          const distSq = dx * dx + dy * dy
-          const minD   = a.radius + b.radius + GAP
-
-          if (distSq >= minD * minD || distSq === 0) continue
-
-          const dist    = Math.sqrt(distSq)
-          const overlap = minD - dist
-          const nx      = dx / dist  // unit vector a→b
-          const ny      = dy / dist
-          const half    = overlap * 0.5
-
-          const aPad = a.radius + GAP
-          const bPad = b.radius + GAP
-
-          // Proposed corrections (split evenly)
-          const aWantX = (a.x ?? 0) - nx * half,  aWantY = (a.y ?? 0) - ny * half
-          const bWantX = (b.x ?? 0) + nx * half,  bWantY = (b.y ?? 0) + ny * half
-
-          // Clamp to walls
-          const aNewX = Math.max(aPad, Math.min(width  - aPad, aWantX))
-          const aNewY = Math.max(aPad, Math.min(height - aPad, aWantY))
-          const bNewX = Math.max(bPad, Math.min(width  - bPad, bWantX))
-          const bNewY = Math.max(bPad, Math.min(height - bPad, bWantY))
-
-          // Whatever a couldn't absorb (wall-blocked), pass to b and vice-versa
-          const aBlockedX = (aWantX - aNewX),  aBlockedY = (aWantY - aNewY)
-          const bBlockedX = (bWantX - bNewX),  bBlockedY = (bWantY - bNewY)
-
-          a.x = aNewX - bBlockedX;  a.y = aNewY - bBlockedY
-          b.x = bNewX - aBlockedX;  b.y = bNewY - aBlockedY
-
-          // Re-clamp after receiving the extra push
-          a.x = Math.max(aPad, Math.min(width  - aPad, a.x!))
-          a.y = Math.max(aPad, Math.min(height - aPad, a.y!))
-          b.x = Math.max(bPad, Math.min(width  - bPad, b.x!))
-          b.y = Math.max(bPad, Math.min(height - bPad, b.y!))
-        }
-      }
-    }
-  }
-}
-
-function buildBoundaryForce(
-  nodesRef: React.RefObject<SimNode[]>,
-  dimRef:   React.RefObject<{ width: number; height: number }>,
-) {
-  return function boundaryForce() {
-    const { width, height } = dimRef.current!
-    for (const n of nodesRef.current!) {
-      const pad = n.radius + 2
-      if (n.x < pad)          { n.x = pad;           n.vx =  Math.abs(n.vx) * 0.5 }
-      if (n.x > width  - pad) { n.x = width  - pad;  n.vx = -Math.abs(n.vx) * 0.5 }
-      if (n.y < pad)          { n.y = pad;            n.vy =  Math.abs(n.vy) * 0.5 }
-      if (n.y > height - pad) { n.y = height - pad;  n.vy = -Math.abs(n.vy) * 0.5 }
-    }
-  }
-}
-
-// Gentle gravity toward canvas centre — prevents low-energy mobile bubbles
-// from clustering in one corner and leaving the rest of the canvas empty.
-function buildCenterForce(
-  nodesRef: React.RefObject<SimNode[]>,
-  dimRef:   React.RefObject<{ width: number; height: number }>,
-) {
-  const STRENGTH = 0.006
-  return function centerForce() {
-    const { width, height } = dimRef.current!
-    const cx = width  / 2
-    const cy = height / 2
-    for (const n of nodesRef.current!) {
-      n.vx! += (cx - (n.x ?? cx)) * STRENGTH
-      n.vy! += (cy - (n.y ?? cy)) * STRENGTH
-    }
-  }
-}
-
-function buildWanderForce(
+// ── Coin force — reverse-engineered from banterbubbles.com ────────────────────
+// Their entire physics is one custom force. Key properties:
+//   • Each bubble holds a `_direction` (random angle) for ~100 ticks (~1.7 s at
+//     60 fps) before randomly resetting — this gives straight-line drift that
+//     occasionally changes heading, exactly like a bubble floating in still air.
+//   • Impulse of 0.1 px/tick² applied in that direction whenever the bubble is
+//     colliding OR on a random 30% chance each tick.
+//   • Velocity clamped to ±2 px/tick after impulse.
+//   • Collision: velocity-based separation proportional to overlap, split by
+//     mass ratio (larger bubble absorbs less of the push).
+//   • Boundary clamping is inlined so bubbles can't escape.
+//   • velocityDecay = 0.4 (D3 default) provides the friction that keeps speeds
+//     manageable without any explicit speed cap on the decay side.
+function buildCoinForce(
   nodesRef: React.RefObject<SimNode[]>,
   dragRef:  React.RefObject<SimNode | null>,
   dimRef:   React.RefObject<{ width: number; height: number }>,
 ) {
-  // Sinusoidal wander — each bubble gets a unique phase and frequency so they
-  // all drift independently. The impulse follows sin/cos curves rather than
-  // random angle steps, which produces smooth organic floating motion instead
-  // of jittery random-walk behaviour. No library needed — just trig.
-  let tick = 0
-
-  return function wanderForce() {
-    tick++
-    const { width } = dimRef.current!
-    const isMobile  = width < 600
-
-    // Slow time progression — full oscillation cycle ≈ every 10–16 s
-    const t = tick * 0.005
-
-    // Keep impulse gentle; higher velocityDecay (lowered from 0.72→0.52) lets
-    // smooth motion persist without needing large kicks.
-    const IMPULSE   = isMobile ? 0.04 : 0.08
-    const MAX_SPEED = isMobile ? 0.35 : 0.65
-
+  return function coinForce() {
+    const nodes             = nodesRef.current!
+    const { width, height } = dimRef.current!
+    const maxX = width  - 5
+    const maxY = height - 5
     const dragged = dragRef.current
-    for (const n of nodesRef.current! as WanderNode[]) {
-      if (n === dragged) continue
 
-      // Assign stable per-bubble phase & frequency once
-      if (n._phase === undefined) n._phase = Math.random() * Math.PI * 2
-      if (n._freq  === undefined) n._freq  = 0.4 + Math.random() * 0.6
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i]
+      if (a === dragged) continue
+      a.isColliding = false
+      if (Number.isNaN(a.vx) || Number.isNaN(a.vy)) { a.vx = 0; a.vy = 0 }
 
-      // Two independent sinusoids (slightly different frequencies) per axis
-      // so the path traces a Lissajous-like figure — organic, non-repeating.
-      n.vx! += Math.sin(t * n._freq        + n._phase)        * IMPULSE
-      n.vy! += Math.cos(t * n._freq * 0.79 + n._phase + 1.13) * IMPULSE
+      // ── Collision pass ──────────────────────────────────────────────────
+      for (let j = 0; j < nodes.length; j++) {
+        if (i === j) continue
+        const b = nodes[j]
+        if (Number.isNaN(b.vx) || Number.isNaN(b.vy)) { b.vx = 0; b.vy = 0 }
 
-      const speed = Math.sqrt(n.vx! * n.vx! + n.vy! * n.vy!)
-      if (speed > MAX_SPEED) {
-        n.vx! = (n.vx! / speed) * MAX_SPEED
-        n.vy! = (n.vy! / speed) * MAX_SPEED
+        const ar     = a.radius * 1.05   // 5% padding so rings don't visually merge
+        const br     = b.radius * 1.05
+        const minD   = ar + br
+        const dx     = a.x - b.x
+        const dy     = a.y - b.y
+        const distSq = dx * dx + dy * dy
+
+        if (distSq > 0 && distSq < minD * minD) {
+          const dist   = Math.sqrt(distSq)
+          const force  = 0.36 * (minD - dist) / dist
+          const total  = ar + br
+          const aShare = br / total   // smaller bubble gets pushed more
+          const bShare = ar / total
+
+          a.vx! += dx * force * aShare / 2
+          a.vy! += dy * force * aShare / 2
+          b.vx! -= dx * force * bShare / 2
+          b.vy! -= dy * force * bShare / 2
+          a.isColliding = true
+        }
+      }
+
+      // ── Drift impulse ───────────────────────────────────────────────────
+      if (a.isColliding || Math.random() < 0.3) {
+        // Clamp inside canvas
+        a.x = Math.max(a.radius, Math.min(maxX - a.radius, a.x))
+        a.y = Math.max(a.radius, Math.min(maxY - a.radius, a.y))
+
+        // Direction held for ~100 ticks; 1 % chance of new heading each tick
+        if (a._direction === undefined || Math.random() < 0.01) {
+          a._direction = Math.random() * Math.PI * 2
+        }
+
+        a.vx! += 0.1 * Math.cos(a._direction)
+        a.vy! += 0.1 * Math.sin(a._direction)
+
+        // Hard velocity cap — matches banterbubbles.com exactly
+        a.vx = Math.min(2, Math.max(-2, a.vx!))
+        a.vy = Math.min(2, Math.max(-2, a.vy!))
       }
     }
   }
