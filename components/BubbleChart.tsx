@@ -296,7 +296,6 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
         .force('mouseSpring', buildMouseSpringForce(nodesRef, dragRef, mouseTargetRef))
         .force('collide',     buildHardCollideForce(nodesRef, dimRef))
         .force('boundary',    buildBoundaryForce(nodesRef, dimRef))
-        .force('center',      buildCenterForce(nodesRef, dimRef))
         .force('wander',      buildWanderForce(nodesRef, dragRef, dimRef))
         .stop()  // manual RAF ticking below
 
