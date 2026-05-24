@@ -96,12 +96,13 @@ export function computeRadii(
   if (containerWidth > 0 && containerHeight > 0) {
     const isMobile = containerWidth < 600
 
-    // Mobile: 50% fill — breathing room for physics.
+    // Mobile: 65% fill — fills ~15% more screen than the old 50%.
     // Desktop: 80% fill — dense visual without bouncing.
-    const fillTarget = isMobile ? 0.50 : 0.80
+    const fillTarget = isMobile ? 0.65 : 0.80
 
-    // Higher ratio → wider size range → more visible variation between tokens.
-    const ratio = 8
+    // Mobile ratio 6 (vs desktop 8) compresses the size range so small bubbles
+    // grow proportionally more than large ones when fill increases.
+    const ratio = isMobile ? 6 : 8
     const r     = ratio - 1  // = 7
     const denom = tokens.length + 2 * r * sumN + r * r * sumN2
     const rawMin = Math.sqrt(containerWidth * containerHeight * fillTarget / (Math.PI * denom))
@@ -112,8 +113,9 @@ export function computeRadii(
     const areaMaxR     = Math.round(Math.sqrt(containerWidth * containerHeight * maxSinglePct / Math.PI))
     const maxCap       = Math.round(Math.min(containerWidth, containerHeight) * 0.30)
 
-    // Allow scaledMin as small as 6px — tiny bubbles just show the logo.
-    scaledMin = Math.max(isMobile ? 6 : 10, Math.round(rawMin))
+    // Allow scaledMin as small as 8px on mobile (was 6) — ensures tiny bubbles
+    // are a bit more visible; desktop floor stays at 10px.
+    scaledMin = Math.max(isMobile ? 8 : 10, Math.round(rawMin))
     // ×0.85 cap — reduce largest bubbles by 15% so they don't dominate the canvas
     scaledMax = Math.round(Math.min(maxCap, areaMaxR, Math.max(scaledMin + 8, Math.round(rawMin * ratio))) * 0.85)
   }
