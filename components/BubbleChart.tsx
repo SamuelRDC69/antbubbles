@@ -79,15 +79,28 @@ type BubbleCanvasEntry = { key: string; canvas: HTMLCanvasElement }
 
 // Paint bubble content into a ctx whose origin is already at the bubble centre.
 // Radius is always integer here (the offscreen canvas is sized to match it).
+//
+// Mobile tier thresholds are much lower because on mobile scaledMax ≈ 29 px —
+// every bubble would fall in the logo-only tier with desktop thresholds.
+// Banterbubbles handles this the same way: on isMobileWeb they always render
+// text regardless of radius, then shrink the font to fit.
 function paintBubbleContent(
   ctx:         CanvasRenderingContext2D,
   node:        SimNode,
   img:         HTMLImageElement | null | undefined,
   displayMode: DisplayMode,
+  isMobile:    boolean,
 ) {
   const { symbol, radius: r } = node   // r is always integer
   const fill = bubbleFillColorForMode(node, displayMode)
   const ring = ringColorForMode(node, displayMode)
+
+  // Responsive tier thresholds
+  // Desktop: plenty of space — reserve logo-only tier for mid-size bubbles.
+  // Mobile:  max radius ≈ 29 px, so drop thresholds so text shows on all but tiny bubbles.
+  const TIER_TINY  = isMobile ? 10 : 16   // below → logo / 2-char abbrev only
+  const TIER_SMALL = isMobile ? 16 : 30   // below → logo only (symbol fallback if no logo)
+  const TIER_VALUE = isMobile ? 22 : 40   // at/above → show metric value
 
   // Background: dark fill → ring colour at edge
   const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r)
@@ -105,7 +118,7 @@ function paintBubbleContent(
   ctx.arc(0, 0, r * 0.88, 0, Math.PI * 2)
   ctx.clip()
 
-  if (r < 16) {
+  if (r < TIER_TINY) {
     // Tiny: logo or 2-char abbrev
     if (img) {
       const s = Math.round(r * 1.1)
@@ -117,8 +130,8 @@ function paintBubbleContent(
       ctx.textBaseline = 'middle'
       ctx.fillText(symbol.slice(0, 2), 0, 0)
     }
-  } else if (r <= 30) {
-    // Small: logo only — symbol name fallback
+  } else if (r <= TIER_SMALL) {
+    // Small: logo only — symbol name fallback if no logo
     if (img) {
       const s = Math.round(r * 1.1)
       ctx.drawImage(img, -(s >> 1), -(s >> 1), s, s)
@@ -130,12 +143,14 @@ function paintBubbleContent(
       ctx.fillText(symbol.length > 5 ? symbol.slice(0, 4) + '…' : symbol, 0, 0)
     }
   } else {
-    // Full: logo + symbol + metric value
+    // Full: logo (if space) + symbol + metric value
     const symFontSize = Math.round(Math.max(9,  Math.min(r * 0.32, 40)))
     const valFontSize = Math.round(Math.max(7,  Math.min(r * 0.20, 18)))
     const logoH       = Math.round(symFontSize * 1.5625)
-    const hasLogo     = !!img
-    const showValue   = r >= 40
+    // On mobile, only include logo when the bubble is large enough to fit
+    // logo + text without crowding. On desktop keep the existing r≥30 threshold.
+    const hasLogo     = !!img && r >= (isMobile ? 28 : 30)
+    const showValue   = r >= TIER_VALUE
     const gap         = Math.round(symFontSize * 0.12)
     const textH       = symFontSize + (showValue ? gap + valFontSize : 0)
     const totalH      = hasLogo ? logoH + gap + textH : textH
@@ -173,11 +188,12 @@ function getOrCreateBubbleCanvas(
   img:         HTMLImageElement | null | undefined,
   displayMode: DisplayMode,
   dpr:         number,
+  isMobile:    boolean,
   cache:       Map<string, BubbleCanvasEntry>,
 ): HTMLCanvasElement {
   const fill  = bubbleFillColorForMode(node, displayMode)
   const val   = formatMetricValue(node, displayMode)
-  const key   = `${node.radius}_${fill}_${val}_${img ? 1 : 0}_${dpr}`
+  const key   = `${node.radius}_${fill}_${val}_${img ? 1 : 0}_${dpr}_${isMobile ? 'm' : 'd'}`
 
   const entry = cache.get(node.id)
   if (entry && entry.key === key) return entry.canvas
@@ -192,7 +208,7 @@ function getOrCreateBubbleCanvas(
   c2.scale(dpr, dpr)
   c2.translate(r + 3, r + 3)     // integer centre — text always at integer physical pixels
 
-  paintBubbleContent(c2, node, img, displayMode)
+  paintBubbleContent(c2, node, img, displayMode, isMobile)
 
   cache.set(node.id, { key, canvas: oc })
   return oc
@@ -209,6 +225,7 @@ function drawBubble(
   displayMode:    DisplayMode,
   offscreenCache: Map<string, BubbleCanvasEntry>,
   dpr:            number,
+  isMobile:       boolean,
 ) {
   const { x = 0, y = 0, radius } = node
   const alpha = isDimmed ? 0.18 : 1
@@ -219,7 +236,7 @@ function drawBubble(
   // Composite the pre-rendered bubble bitmap at the float simulation position.
   // drawImage uses bilinear interpolation so the whole image shifts smoothly —
   // no per-frame glyph rasterisation, no shimmering.
-  const bc   = getOrCreateBubbleCanvas(node, img, displayMode, dpr, offscreenCache)
+  const bc   = getOrCreateBubbleCanvas(node, img, displayMode, dpr, isMobile, offscreenCache)
   const size = 2 * radius + 6
   ctx.drawImage(bc, x - radius - 3, y - radius - 3, size, size)
 
@@ -416,16 +433,17 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       ctx.fillStyle = '#000000'
       ctx.fillRect(0, 0, width, height)
 
-      const nodes  = nodesRef.current
-      const q      = searchQuery.toLowerCase()
-      const cache  = offscreenCacheRef.current
+      const nodes    = nodesRef.current
+      const q        = searchQuery.toLowerCase()
+      const cache    = offscreenCacheRef.current
+      const isMobile = width < 600
 
       for (const node of nodes) {
         const isHovered  = hoveredRef.current === node.id
         const isDragging = dragRef.current    === node
         const isMatch    = q.length > 1 && node.symbol.toLowerCase().includes(q)
         const isDimmed   = q.length > 1 && !isMatch
-        drawBubble(ctx, node, imagesRef.current.get(node.id), isHovered, isDragging, isDimmed, displayMode, cache, dpr)
+        drawBubble(ctx, node, imagesRef.current.get(node.id), isHovered, isDragging, isDimmed, displayMode, cache, dpr, isMobile)
       }
 
       // Signal skeleton can be hidden after first real frame with nodes
