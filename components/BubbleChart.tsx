@@ -46,6 +46,16 @@ interface TooltipState {
   token: SimNode
 }
 
+// ── Colour helper ─────────────────────────────────────────────────────────────
+// Returns an rgba() string from a 6-digit hex colour + an alpha 0–1.
+// Used to build gradient stops with partial transparency from hex ring colours.
+function hexAlpha(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
 // ── Image loader ──────────────────────────────────────────────────────────────
 // Logos are served by our own /api/logo proxy (cached 24h) so all requests
 // can fire in parallel — no stagger needed.
@@ -86,47 +96,50 @@ function drawBubble(
   // made logos/text appear to shift inside the ring each frame.
   const drawR  = isDragging ? radius : isHovered ? radius * 1.07 : radius
   const drawRi = Math.round(drawR)
-  const ringW  = Math.max(2, drawR * 0.06)
   const alpha  = isDimmed ? 0.18 : 1
 
   ctx.save()
-  // Round the translate so every draw call lands on integer pixels.
-  // Canvas arcs are anti-aliased at any integer position so circles still
-  // look smooth; text/images have no float pixel-snap jitter at all.
-  ctx.translate(Math.round(x), Math.round(y))   // ← bubble centre at integer pixel
+  ctx.translate(Math.round(x), Math.round(y))
   ctx.globalAlpha = alpha
 
-  // Outer pulse ring on hover
+  // Outer pulse halo on hover (thin, outside bubble)
   if (isHovered && !isDimmed) {
     ctx.beginPath()
-    ctx.arc(0, 0, drawR + 5, 0, Math.PI * 2)
-    ctx.strokeStyle = ring + '50'
+    ctx.arc(0, 0, drawR + 6, 0, Math.PI * 2)
+    ctx.strokeStyle = ring + '40'
     ctx.lineWidth   = 1.5
     ctx.shadowBlur  = 0
     ctx.stroke()
   }
 
-  // Glow + fill
-  ctx.shadowBlur  = isDragging ? radius * 1.1 : isHovered ? radius * 1.2 : radius * 0.7
+  // External glow bloom
+  ctx.shadowBlur  = isDragging ? radius * 1.2 : isHovered ? radius * 1.35 : radius * 0.85
   ctx.shadowColor = glow
+
+  // Radial gradient fill:
+  //   • Subtle off-centre highlight in upper-left (3D depth)
+  //   • Dark interior for most of the radius
+  //   • Bright glowing rim in the outer ~15% — this IS the "ring", no stroke needed
+  const grad = ctx.createRadialGradient(
+    -drawR * 0.20, -drawR * 0.20, 0,  // highlight focal point (upper-left)
+    0, 0, drawR,                        // outer circle, centred
+  )
+  grad.addColorStop(0,    fillLight)          // subtle centre highlight
+  grad.addColorStop(0.45, fill)               // transitions to dark
+  grad.addColorStop(0.80, fill)               // stays dark through interior
+  grad.addColorStop(0.88, hexAlpha(ring, 0.35)) // rim glow begins
+  grad.addColorStop(0.95, hexAlpha(ring, 0.85)) // rim brightens
+  grad.addColorStop(1.0,  ring)               // full ring colour at very edge
+
   ctx.beginPath()
   ctx.arc(0, 0, drawR, 0, Math.PI * 2)
-  // Radial gradient fill: slightly lighter centre → dark edges (matches Banter Bubbles)
-  const grad = ctx.createRadialGradient(-drawR * 0.2, -drawR * 0.2, 0, 0, 0, drawR)
-  grad.addColorStop(0, fillLight)
-  grad.addColorStop(1, fill)
   ctx.fillStyle = grad
   ctx.fill()
+  ctx.shadowBlur = 0
 
-  // Ring
-  ctx.lineWidth   = isDragging ? ringW * 1.5 : isHovered ? ringW * 1.4 : ringW
-  ctx.strokeStyle = ring
-  ctx.stroke()
-  ctx.shadowBlur  = 0
-
-  // Clip interior — everything below is clipped to the bubble disc
+  // Clip content to bubble interior
   ctx.beginPath()
-  ctx.arc(0, 0, drawR - ringW / 2, 0, Math.PI * 2)
+  ctx.arc(0, 0, drawR * 0.92, 0, Math.PI * 2)
   ctx.clip()
 
   // ── Content tiers (all coordinates relative to centre = 0, 0) ───────────
