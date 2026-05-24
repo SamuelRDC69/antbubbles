@@ -565,27 +565,51 @@ function PoolSelector({
   onSelect:      (p: TokenPool) => void
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  // Dropdown position computed from the trigger's viewport rect so the menu
+  // uses fixed positioning — it won't drift when the toolbar scrolls on mobile.
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 240 })
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dropRef    = useRef<HTMLDivElement>(null)
+
+  const openDropdown = () => {
+    if (triggerRef.current) {
+      const r   = triggerRef.current.getBoundingClientRect()
+      const w   = Math.max(240, r.width)
+      // Clamp left so it never overflows the right edge of the viewport
+      const left = Math.min(r.left, window.innerWidth - w - 8)
+      setDropPos({ top: r.bottom + 4, left, width: w })
+    }
+    setOpen(o => !o)
+  }
 
   useEffect(() => {
     if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    const close = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node
+      if (
+        dropRef.current    && !dropRef.current.contains(target) &&
+        triggerRef.current && !triggerRef.current.contains(target)
+      ) setOpen(false)
     }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    document.addEventListener('mousedown',  close)
+    document.addEventListener('touchstart', close, { passive: true })
+    return () => {
+      document.removeEventListener('mousedown',  close)
+      document.removeEventListener('touchstart', close)
+    }
   }, [open])
 
   const counterpartLogoUrl = (pool: TokenPool) =>
     `/api/logo?id=${encodeURIComponent(pool.counterpartId)}&chain=${chain.id}`
 
   return (
-    <div ref={ref} className="relative">
+    <div className="relative">
       {/* ── Trigger button ── */}
       <button
-        onClick={() => setOpen(o => !o)}
+        ref={triggerRef}
+        onClick={openDropdown}
         className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold
-          bg-white/[0.07] border border-white/[0.10] hover:bg-white/[0.10] transition-colors"
+          bg-white/[0.07] border border-white/[0.10] hover:bg-white/[0.10] transition-colors whitespace-nowrap"
       >
         <PoolLogo src={tokenLogoUrl} symbol={tokenSymbol} size={14} />
         <span className="text-white">{tokenSymbol}</span>
@@ -601,21 +625,17 @@ function PoolSelector({
         </svg>
       </button>
 
-      {/* ── Dropdown ── */}
+      {/* ── Dropdown — fixed to viewport so toolbar scroll can't move it ── */}
       {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 rounded-xl border border-white/[0.08] shadow-2xl overflow-hidden"
-          style={{ background: '#0c1218', minWidth: 240 }}>
-
+        <div
+          ref={dropRef}
+          className="fixed z-[200] rounded-xl border border-white/[0.08] shadow-2xl overflow-hidden overflow-y-auto"
+          style={{ background: '#0c1218', top: dropPos.top, left: dropPos.left, width: dropPos.width, maxHeight: '50vh' }}
+        >
           {/* Column headers */}
-          <div className="flex items-center px-3 py-1.5 border-b border-white/[0.06] gap-0">
-            <span className="flex-1 text-[9px] font-semibold uppercase tracking-widest text-gray-600"
-              title="Trading pair — token you are viewing / its liquidity counterpart">
-              Pair
-            </span>
-            <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-600 text-right w-16"
-              title="Total Value Locked — combined USD value of both sides of this pool">
-              TVL
-            </span>
+          <div className="flex items-center px-3 py-1.5 border-b border-white/[0.06]">
+            <span className="flex-1 text-[9px] font-semibold uppercase tracking-widest text-gray-600">Pair</span>
+            <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-600 text-right w-16">TVL</span>
           </div>
 
           {/* Pool rows */}
@@ -625,11 +645,10 @@ function PoolSelector({
               <button
                 key={p.id}
                 onClick={() => { onSelect(p); setOpen(false) }}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors
+                className={`w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors
                   border-b border-white/[0.03] last:border-0
-                  ${isSelected ? 'bg-white/[0.06]' : 'hover:bg-white/[0.04]'}`}
+                  ${isSelected ? 'bg-white/[0.06]' : 'active:bg-white/[0.06]'}`}
               >
-                {/* Pair: logos + symbols */}
                 <div className="flex items-center gap-1 flex-1 min-w-0">
                   <PoolLogo src={tokenLogoUrl} symbol={tokenSymbol} size={16} />
                   <span className="text-[11px] font-semibold text-white">{tokenSymbol}</span>
@@ -638,7 +657,6 @@ function PoolSelector({
                   <span className="text-[11px] font-semibold text-gray-300">{p.counterpartSymbol}</span>
                   {isSelected && <span className="w-1 h-1 rounded-full bg-green-500 shrink-0 ml-0.5" />}
                 </div>
-                {/* TVL */}
                 <span className="text-[11px] tabular-nums text-gray-400 w-16 text-right shrink-0">
                   {p.tvl > 0 ? formatVolume(p.tvl) : <span className="text-gray-700">—</span>}
                 </span>
