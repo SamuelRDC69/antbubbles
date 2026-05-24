@@ -178,8 +178,19 @@ export function bubbleFillColor(signal: number): string {
   return '#0d0d14'
 }
 
+// Slightly lighter centre colour for the radial gradient (matches Banter Bubbles 3D look)
+export function bubbleFillLightColor(signal: number): string {
+  if (signal > 0) return '#004d20'   // lighter green centre
+  if (signal < 0) return '#4d0010'   // lighter red centre
+  return '#1a1a2e'
+}
+
 export function bubbleFillColorForMode(token: TokenBubbleData, mode: DisplayMode): string {
   return bubbleFillColor(ringSignal(token, mode))
+}
+
+export function bubbleFillLightForMode(token: TokenBubbleData, mode: DisplayMode): string {
+  return bubbleFillLightColor(ringSignal(token, mode))
 }
 
 // Glowing ring — 'change' metric gets full magnitude gradient; others get flat direction colour
@@ -204,9 +215,9 @@ export function ringColorForMode(token: TokenBubbleData, mode: DisplayMode): str
 }
 
 export function glowColor(signal: number): string {
-  if (signal > 0) return 'rgba(0,220,80,0.55)'
-  if (signal < 0) return 'rgba(220,20,50,0.55)'
-  return 'rgba(80,120,140,0.35)'
+  if (signal > 0) return 'rgba(0,255,80,0.85)'
+  if (signal < 0) return 'rgba(255,20,50,0.85)'
+  return 'rgba(80,120,140,0.5)'
 }
 
 export function glowColorForMode(token: TokenBubbleData, mode: DisplayMode): string {

@@ -7,6 +7,7 @@ import { TokenBubbleData, DisplayMode } from '@/lib/types'
 import {
   computeRadii,
   bubbleFillColorForMode,
+  bubbleFillLightForMode,
   ringColorForMode,
   glowColorForMode,
   metricTextColor,
@@ -71,7 +72,8 @@ function drawBubble(
   displayMode: DisplayMode,
 ) {
   const { x = 0, y = 0, radius, symbol } = node
-  const fill  = bubbleFillColorForMode(node, displayMode)
+  const fill      = bubbleFillColorForMode(node, displayMode)
+  const fillLight = bubbleFillLightForMode(node, displayMode)
   const ring  = ringColorForMode(node, displayMode)
   const glow  = glowColorForMode(node, displayMode)
 
@@ -84,7 +86,7 @@ function drawBubble(
   // made logos/text appear to shift inside the ring each frame.
   const drawR  = isDragging ? radius : isHovered ? radius * 1.07 : radius
   const drawRi = Math.round(drawR)
-  const ringW  = Math.max(2, drawR * 0.07)
+  const ringW  = Math.max(2, drawR * 0.06)
   const alpha  = isDimmed ? 0.18 : 1
 
   ctx.save()
@@ -105,11 +107,15 @@ function drawBubble(
   }
 
   // Glow + fill
-  ctx.shadowBlur  = isDragging ? radius * 0.9 : isHovered ? radius * 0.95 : radius * 0.5
+  ctx.shadowBlur  = isDragging ? radius * 1.1 : isHovered ? radius * 1.2 : radius * 0.7
   ctx.shadowColor = glow
   ctx.beginPath()
   ctx.arc(0, 0, drawR, 0, Math.PI * 2)
-  ctx.fillStyle = fill
+  // Radial gradient fill: slightly lighter centre → dark edges (matches Banter Bubbles)
+  const grad = ctx.createRadialGradient(-drawR * 0.2, -drawR * 0.2, 0, 0, 0, drawR)
+  grad.addColorStop(0, fillLight)
+  grad.addColorStop(1, fill)
+  ctx.fillStyle = grad
   ctx.fill()
 
   // Ring
@@ -145,13 +151,13 @@ function drawBubble(
     // Logo is 63% of diameter (was 42%) — more prominent, matches the modal's
     // round token image. Content is shifted up ~10% of radius so the logo
     // occupies the upper half and text sits in the lower half.
-    const symFontSize = Math.round(Math.max(9,  Math.min(drawRi * 0.38, 36)))
-    const valFontSize = Math.round(Math.max(7,  Math.min(drawRi * 0.25, 18)))
-    const logoH       = Math.round(drawRi * 0.45)
+    const symFontSize = Math.round(Math.max(9,  Math.min(drawRi * 0.47, 60)))
+    const valFontSize = Math.round(Math.max(7,  Math.min(drawRi * 0.21, 20)))
+    const logoH       = Math.round(drawRi * 0.28)
     const hasLogo     = !!img
 
-    const showValue = drawRi >= 24
-    const gap    = Math.round(symFontSize * 0.15)
+    const showValue = drawRi >= 22
+    const gap    = Math.round(symFontSize * 0.12)
     const textH  = symFontSize + (showValue ? gap + valFontSize : 0)
     const totalH = hasLogo ? logoH + gap + textH : textH
 
