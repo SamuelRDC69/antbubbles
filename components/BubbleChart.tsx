@@ -86,7 +86,7 @@ function drawBubble(
   const alpha  = isDimmed ? 0.18 : 1
 
   ctx.save()
-  ctx.translate(Math.round(x), Math.round(y))
+  ctx.translate(x, y)   // float — sub-pixel anti-aliasing keeps arcs smooth
   ctx.globalAlpha = alpha
 
   // Inner rim only — no external glow.
