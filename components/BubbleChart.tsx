@@ -105,7 +105,7 @@ function drawBubble(
   }
 
   // Glow + fill
-  ctx.shadowBlur  = isDragging ? radius * 0.7 : isHovered ? radius * 0.75 : radius * 0.3
+  ctx.shadowBlur  = isDragging ? radius * 0.9 : isHovered ? radius * 0.95 : radius * 0.5
   ctx.shadowColor = glow
   ctx.beginPath()
   ctx.arc(0, 0, drawR, 0, Math.PI * 2)
@@ -145,19 +145,18 @@ function drawBubble(
     // Logo is 63% of diameter (was 42%) — more prominent, matches the modal's
     // round token image. Content is shifted up ~10% of radius so the logo
     // occupies the upper half and text sits in the lower half.
-    const symFontSize = Math.round(Math.max(9,  Math.min(drawRi * 0.33, 20)))
-    const valFontSize = Math.round(Math.max(7,  Math.min(drawRi * 0.22, 13)))
-    const logoH       = Math.round(drawRi * 0.63)
+    const symFontSize = Math.round(Math.max(9,  Math.min(drawRi * 0.38, 36)))
+    const valFontSize = Math.round(Math.max(7,  Math.min(drawRi * 0.25, 18)))
+    const logoH       = Math.round(drawRi * 0.45)
     const hasLogo     = !!img
 
-    const showValue = drawRi >= 28
+    const showValue = drawRi >= 24
     const gap    = Math.round(symFontSize * 0.15)
     const textH  = symFontSize + (showValue ? gap + valFontSize : 0)
     const totalH = hasLogo ? logoH + gap + textH : textH
 
-    // Shift the whole group up so the logo lands in the upper half
-    const lift    = Math.round(drawRi * 0.10)
-    let cursorY = Math.round(-totalH / 2) - lift
+    // Vertically centre the content group
+    let cursorY = Math.round(-totalH / 2)
 
     if (hasLogo) {
       ctx.globalAlpha = alpha
@@ -278,7 +277,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       simRef.current = forceSimulation(nodes)
         .alphaDecay(0)
         .alphaTarget(0.3)
-        .velocityDecay(isMobileSim ? 0.60 : 0.45)
+        .velocityDecay(isMobileSim ? 0.72 : 0.60)
         .force('radiusTween', buildRadiusTweenForce(nodesRef))
         .force('mouseSpring', buildMouseSpringForce(nodesRef, dragRef, mouseTargetRef))
         .force('collide',     buildHardCollideForce(nodesRef, dimRef))
@@ -641,7 +640,7 @@ function buildHardCollideForce(
   nodesRef: React.RefObject<SimNode[]>,
   dimRef:   React.RefObject<{ width: number; height: number }>,
 ) {
-  const GAP = 4   // px gap between bubble rings (prevents visual ring merging)
+  const GAP = 2   // px gap between bubble rings (prevents visual ring merging)
 
   // VEL_SCALE removed (was 0.25). Position corrections alone maintain separation.
   // Adding velocity from each correction caused accumulation: with 8 iterations and
@@ -743,9 +742,9 @@ function buildWanderForce(
   dragRef:  React.RefObject<SimNode | null>,
   dimRef:   React.RefObject<{ width: number; height: number }>,
 ) {
-  const ANGLE_DRIFT  = 0.12
-  const BASE_IMPULSE = 0.18
-  const BASE_SPEED   = 2.2
+  const ANGLE_DRIFT  = 0.08
+  const BASE_IMPULSE = 0.06
+  const BASE_SPEED   = 1.0
 
   return function wanderForce() {
     const { width } = dimRef.current!
@@ -754,10 +753,10 @@ function buildWanderForce(
     // On mobile (< 600px) cap energy lower so slow-moving bubbles don't
     // repeatedly push into each other before the collision force can correct.
     const scale     = width < 600
-      ? Math.min(0.3, Math.max(0.15, width / 900))
-      : Math.min(1,   Math.max(0.35, width / 900))
+      ? Math.min(0.25, Math.max(0.1, width / 900))
+      : Math.min(1,    Math.max(0.3, width / 900))
     const IMPULSE   = BASE_IMPULSE * scale
-    const MAX_SPEED = Math.max(width < 600 ? 0.4 : 0.6, BASE_SPEED * scale)
+    const MAX_SPEED = Math.max(width < 600 ? 0.2 : 0.35, BASE_SPEED * scale)
 
     const dragged = dragRef.current
     for (const n of nodesRef.current! as WanderNode[]) {
