@@ -36,7 +36,7 @@ interface SimNode extends TokenBubbleData {
   targetRadius: number
 }
 
-interface WanderNode extends SimNode { _angle?: number }
+interface WanderNode extends SimNode { _phase?: number; _freq?: number }
 
 interface TooltipState {
   x: number
@@ -124,7 +124,13 @@ function drawBubble(
   // Small (16-27px): logo + symbol
   // Full  (≥ 28px): logo (larger, upper half) + symbol + metric value
 
+  // ── Content tiers ────────────────────────────────────────────────────────
+  // Tiny   (< 16px)  : logo only — or 2-char abbrev if no logo
+  // Small  (16-30px) : logo only — or symbol name if no logo  (no % text)
+  // Full   (> 30px)  : logo + symbol + metric value
+
   if (drawRi < 16) {
+    // Tiny: just the logo (or 2-char abbreviation)
     ctx.globalAlpha = alpha
     if (img) {
       const s = Math.round(drawRi * 1.1)
@@ -136,16 +142,29 @@ function drawBubble(
       ctx.textBaseline = 'middle'
       ctx.fillText(symbol.slice(0, 2), 0, 0)
     }
+  } else if (drawRi <= 30) {
+    // Small: logo only — symbol name fallback if no logo
+    ctx.globalAlpha = alpha
+    if (img) {
+      const s = Math.round(drawRi * 1.1)
+      ctx.drawImage(img, -(s >> 1), -(s >> 1), s, s)
+    } else {
+      ctx.font         = `700 ${Math.round(Math.max(7, drawRi * 0.38))}px Inter, system-ui, sans-serif`
+      ctx.fillStyle    = '#ffffff'
+      ctx.textAlign    = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(symbol.length > 5 ? symbol.slice(0, 4) + '…' : symbol, 0, 0)
+    }
   } else {
-    // All sizes derived from drawRi so layout never changes mid-tween.
-    // Logo is slightly taller than the symbol text so it reads as the primary
-    // identifier. symFontSize drives the scale; logoH is derived from it.
+    // Full: logo + symbol + metric value
+    // logoH is derived from symFontSize and is 25% larger than before (×1.5625)
+    // so it reads as the dominant identifier above the text.
     const symFontSize = Math.round(Math.max(9,  Math.min(drawRi * 0.32, 40)))
     const valFontSize = Math.round(Math.max(7,  Math.min(drawRi * 0.20, 18)))
-    const logoH       = Math.round(symFontSize * 1.25)   // ~25% taller than symbol text
+    const logoH       = Math.round(symFontSize * 1.5625)  // 25% larger than prev 1.25×
     const hasLogo     = !!img
 
-    const showValue = drawRi >= 22
+    const showValue = drawRi >= 40
     const gap    = Math.round(symFontSize * 0.12)
     const textH  = symFontSize + (showValue ? gap + valFontSize : 0)
     const totalH = hasLogo ? logoH + gap + textH : textH
@@ -272,7 +291,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       simRef.current = forceSimulation(nodes)
         .alphaDecay(0)
         .alphaTarget(0.3)
-        .velocityDecay(isMobileSim ? 0.72 : 0.60)
+        .velocityDecay(isMobileSim ? 0.52 : 0.40)
         .force('radiusTween', buildRadiusTweenForce(nodesRef))
         .force('mouseSpring', buildMouseSpringForce(nodesRef, dragRef, mouseTargetRef))
         .force('collide',     buildHardCollideForce(nodesRef, dimRef))
@@ -737,31 +756,37 @@ function buildWanderForce(
   dragRef:  React.RefObject<SimNode | null>,
   dimRef:   React.RefObject<{ width: number; height: number }>,
 ) {
-  const ANGLE_DRIFT  = 0.08
-  const BASE_IMPULSE = 0.06
-  const BASE_SPEED   = 1.0
+  // Sinusoidal wander — each bubble gets a unique phase and frequency so they
+  // all drift independently. The impulse follows sin/cos curves rather than
+  // random angle steps, which produces smooth organic floating motion instead
+  // of jittery random-walk behaviour. No library needed — just trig.
+  let tick = 0
 
   return function wanderForce() {
+    tick++
     const { width } = dimRef.current!
-    // Scale down energy on narrow viewports so bubbles don't thrash in tight spaces.
-    // 900px is the reference "desktop" width — below that energy tapers off.
-    // On mobile (< 600px) cap energy lower so slow-moving bubbles don't
-    // repeatedly push into each other before the collision force can correct.
-    const scale     = width < 600
-      ? Math.min(0.25, Math.max(0.1, width / 900))
-      : Math.min(1,    Math.max(0.3, width / 900))
-    const IMPULSE   = BASE_IMPULSE * scale
-    const MAX_SPEED = Math.max(width < 600 ? 0.2 : 0.35, BASE_SPEED * scale)
+    const isMobile  = width < 600
+
+    // Slow time progression — full oscillation cycle ≈ every 10–16 s
+    const t = tick * 0.005
+
+    // Keep impulse gentle; higher velocityDecay (lowered from 0.72→0.52) lets
+    // smooth motion persist without needing large kicks.
+    const IMPULSE   = isMobile ? 0.04 : 0.08
+    const MAX_SPEED = isMobile ? 0.35 : 0.65
 
     const dragged = dragRef.current
     for (const n of nodesRef.current! as WanderNode[]) {
       if (n === dragged) continue
 
-      if (n._angle === undefined) n._angle = Math.random() * Math.PI * 2
-      n._angle += (Math.random() - 0.5) * ANGLE_DRIFT * 2
+      // Assign stable per-bubble phase & frequency once
+      if (n._phase === undefined) n._phase = Math.random() * Math.PI * 2
+      if (n._freq  === undefined) n._freq  = 0.4 + Math.random() * 0.6
 
-      n.vx! += Math.cos(n._angle) * IMPULSE
-      n.vy! += Math.sin(n._angle) * IMPULSE
+      // Two independent sinusoids (slightly different frequencies) per axis
+      // so the path traces a Lissajous-like figure — organic, non-repeating.
+      n.vx! += Math.sin(t * n._freq        + n._phase)        * IMPULSE
+      n.vy! += Math.cos(t * n._freq * 0.79 + n._phase + 1.13) * IMPULSE
 
       const speed = Math.sqrt(n.vx! * n.vx! + n.vy! * n.vy!)
       if (speed > MAX_SPEED) {

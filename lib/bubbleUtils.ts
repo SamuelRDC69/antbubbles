@@ -114,7 +114,8 @@ export function computeRadii(
 
     // Allow scaledMin as small as 6px — tiny bubbles just show the logo.
     scaledMin = Math.max(isMobile ? 6 : 10, Math.round(rawMin))
-    scaledMax = Math.min(maxCap, areaMaxR, Math.max(scaledMin + 8, Math.round(rawMin * ratio)))
+    // ×0.85 cap — reduce largest bubbles by 15% so they don't dominate the canvas
+    scaledMax = Math.round(Math.min(maxCap, areaMaxR, Math.max(scaledMin + 8, Math.round(rawMin * ratio))) * 0.85)
   }
 
   if (maxVal <= 0) {
