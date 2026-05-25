@@ -118,8 +118,16 @@ function paintBubbleContent(
   ctx.arc(0, 0, r * 0.88, 0, Math.PI * 2)
   ctx.clip()
 
-  if (r < TIER_TINY) {
-    // Tiny: logo or 2-char abbrev
+  // Mobile tier logic:
+  //   logo-only  for any bubble that has an image — no text until bubble is large
+  //   name-only  fallback when no image is available
+  //   full text  (logo + name + value) only for large bubbles
+  //
+  // Desktop tier logic unchanged: size-based tiers as before.
+  const TIER_FULL = isMobile ? 38 : TIER_SMALL  // radius at which text appears alongside logo
+
+  if (!isMobile && r < TIER_TINY) {
+    // Desktop tiny: logo or 2-char abbrev
     if (img) {
       const s = Math.round(r * 1.1)
       ctx.drawImage(img, -(s >> 1), -(s >> 1), s, s)
@@ -130,8 +138,8 @@ function paintBubbleContent(
       ctx.textBaseline = 'middle'
       ctx.fillText(symbol.slice(0, 2), 0, 0)
     }
-  } else if (r <= TIER_SMALL) {
-    // Small: logo only — symbol name fallback if no logo
+  } else if (!isMobile && r <= TIER_SMALL) {
+    // Desktop small: logo only — symbol name fallback if no logo
     if (img) {
       const s = Math.round(r * 1.1)
       ctx.drawImage(img, -(s >> 1), -(s >> 1), s, s)
@@ -142,14 +150,24 @@ function paintBubbleContent(
       ctx.textBaseline = 'middle'
       ctx.fillText(symbol.length > 5 ? symbol.slice(0, 4) + '…' : symbol, 0, 0)
     }
+  } else if (isMobile && r < TIER_FULL) {
+    // Mobile small/medium: logo only — symbol name fallback if no logo
+    if (img) {
+      const s = Math.round(r * 1.4)   // fill more of the bubble with the logo
+      ctx.drawImage(img, -(s >> 1), -(s >> 1), s, s)
+    } else {
+      ctx.font         = `700 ${Math.round(Math.max(7, r * 0.38))}px Inter, system-ui, sans-serif`
+      ctx.fillStyle    = '#ffffff'
+      ctx.textAlign    = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(symbol.length > 5 ? symbol.slice(0, 4) + '…' : symbol, 0, 0)
+    }
   } else {
-    // Full: logo (if space) + symbol + metric value
+    // Full: logo + symbol + metric value
     const symFontSize = Math.round(Math.max(9,  Math.min(r * 0.32, 40)))
     const valFontSize = Math.round(Math.max(7,  Math.min(r * 0.20, 18)))
     const logoH       = Math.round(symFontSize * 1.5625)
-    // On mobile, only include logo when the bubble is large enough to fit
-    // logo + text without crowding. On desktop keep the existing r≥30 threshold.
-    const hasLogo     = !!img && r >= (isMobile ? 28 : 30)
+    const hasLogo     = !!img && r >= 30
     const showValue   = r >= TIER_VALUE
     const gap         = Math.round(symFontSize * 0.12)
     const textH       = symFontSize + (showValue ? gap + valFontSize : 0)
