@@ -118,12 +118,12 @@ export function computeRadii(
     scaledMin = Math.max(10, Math.round(rawMin))
 
     // Desktop: ×0.85 trims the largest bubbles so they don't dominate.
-    // Mobile:  ×1.035 (was 1.15, dialled back 10% after live sizing check).
-    const sizeMultiplier = isMobile ? 1.035 : 0.85
+    // Mobile:  ×0.93 (dialled back another 10% after live sizing check).
+    const sizeMultiplier = isMobile ? 0.93 : 0.85
     scaledMax = Math.round(Math.min(maxCap, areaMaxR, Math.max(scaledMin + 8, Math.round(rawMin * ratio))) * sizeMultiplier)
 
     if (isMobile) {
-      scaledMin = Math.round(scaledMin * 1.035)
+      scaledMin = Math.round(scaledMin * 0.93)
     }
   }
 
