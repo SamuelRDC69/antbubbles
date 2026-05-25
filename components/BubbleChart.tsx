@@ -769,15 +769,6 @@ function buildCoinForce(
       a.x = Math.max(a.radius, Math.min(maxX - a.radius, a.x))
       a.y = Math.max(a.radius, Math.min(maxY - a.radius, a.y))
 
-      // ── Gravity toward canvas centre (mobile only) ────────────────────
-      // On mobile the canvas is narrow and tall, so bubbles can drift to
-      // the bottom corner leaving the top empty. This gentle pull keeps
-      // the cluster centred. Desktop doesn't need it — fill is dense enough.
-      if (width < 600) {
-        a.vx! += (width  / 2 - a.x) * 0.015
-        a.vy! += (height / 2 - a.y) * 0.015
-      }
-
       // ── Drift impulse ───────────────────────────────────────────────────
       if (a.isColliding || Math.random() < 0.3) {
         // Direction held for ~100 ticks; 1 % chance of new heading each tick
