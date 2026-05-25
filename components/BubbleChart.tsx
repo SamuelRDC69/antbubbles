@@ -124,7 +124,7 @@ function paintBubbleContent(
   //   full text  (logo + name + value) only for large bubbles
   //
   // Desktop tier logic unchanged: size-based tiers as before.
-  const TIER_FULL = isMobile ? 24 : TIER_SMALL  // radius at which text appears alongside logo
+  const TIER_FULL = isMobile ? 19 : TIER_SMALL  // radius at which text appears alongside logo
 
   if (!isMobile && r < TIER_TINY) {
     // Desktop tiny: logo or 2-char abbrev
