@@ -157,16 +157,24 @@ export function ringSignal(token: TokenBubbleData, mode: DisplayMode): number {
 
     case 'volume': {
       if (mode.timeframe === '24h') {
-        // Today vs 7D daily average
+        if (token.vol24hChange !== undefined) {
+          return token.vol24hChange > 0 ? 1 : token.vol24hChange < 0 ? -1 : 0
+        }
+        // Fallback: today vs 7D daily average when explicit delta is unavailable
         if (!token.volume7dusd) return 0
         return token.volume24usd > token.volume7dusd / 7 ? 1 : -1
       }
       if (mode.timeframe === '7d') {
-        // This week vs 30D weekly average
+        if (token.vol7dChange !== undefined) {
+          return token.vol7dChange > 0 ? 1 : token.vol7dChange < 0 ? -1 : 0
+        }
+        // Fallback: this week vs 30D weekly average
         if (!token.volume30dusd) return 0
         return (token.volume7dusd ?? 0) > token.volume30dusd / 4 ? 1 : -1
       }
-      // 30D — no prior period in API, neutral
+      if (token.vol30dChange !== undefined) {
+        return token.vol30dChange > 0 ? 1 : token.vol30dChange < 0 ? -1 : 0
+      }
       return 0
     }
 

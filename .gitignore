@@ -40,3 +40,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.dex-candles.db
+.dex-candles.db-shm
+.dex-candles.db-wal
+.offchain-token-snapshots.json
+worker/offchain-seed.db

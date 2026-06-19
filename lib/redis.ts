@@ -19,8 +19,14 @@ export function getRedis(): Redis | null {
 // Single source of truth so worker and API routes always agree on key format.
 export const REDIS_KEYS = {
   tokens:    (chainId: string) => `tokens:${chainId}`,
+  offchainTokens: (dex: string) => `tokens:${dex}`,
+  offchainChart: (dex: string, tokenId: string, resolution: number) => `chart:offchain:${dex}:${tokenId}:${resolution}`,
   klines:    (key: string)     => `chart:klines:${key}`,
+  klinesLatest: (chainId: string, tickerId: string, resolution: string) =>
+    `chart:klines:latest:${chainId}:${tickerId}:${resolution}`,
   poolChart: (key: string)     => `chart:pool:${key}`,
+  poolChartLatest: (chainId: string, poolId: string | number, resolution: string, reverse: string | boolean) =>
+    `chart:pool:latest:${chainId}:${poolId}:${resolution}:${String(reverse)}`,
 }
 
 // ── TTL helpers ───────────────────────────────────────────────────────────────

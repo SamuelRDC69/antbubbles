@@ -47,7 +47,7 @@ export default function LoadingScreen({ chain, error }: Props) {
       <div className="text-gray-400 font-medium">
         Loading <span style={{ color: chain.color }}>{chain.displayName}</span> tokens…
       </div>
-      <div className="text-gray-600 text-sm">Fetching data from Alcor DEX</div>
+      <div className="text-gray-600 text-sm">Fetching latest market data</div>
     </div>
   )
 }

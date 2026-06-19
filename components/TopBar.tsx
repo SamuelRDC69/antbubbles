@@ -1,6 +1,6 @@
 'use client'
 
-import { DisplayMode, Metric, Timeframe, ChainConfig } from '@/lib/types'
+import { DisplayMode, Metric, Timeframe, ChainConfig, DexMode } from '@/lib/types'
 
 // Which timeframes are valid for each metric
 const TIMEFRAMES: Record<Metric, Timeframe[]> = {
@@ -27,22 +27,26 @@ const TIMEFRAME_LABELS: Record<Timeframe, string> = {
 
 interface Props {
   chain:          ChainConfig
+  dex:            DexMode
   displayMode:    DisplayMode
   searchQuery:    string
   lastUpdated:    Date | null
   connected:      boolean
   onChainChange:  (chain: ChainConfig) => void
+  onDexChange:    (dex: DexMode) => void
   onModeChange:   (mode: DisplayMode) => void
   onSearchChange: (q: string) => void
 }
 
 export default function TopBar({
   chain,
+  dex,
   displayMode,
   searchQuery,
   lastUpdated,
   connected,
   onChainChange,
+  onDexChange,
   onModeChange,
   onSearchChange,
 }: Props) {
@@ -80,12 +84,49 @@ export default function TopBar({
         </span>
       </div>
 
-      {/* Chain badge — single chain for v1 */}
-      <div className="flex items-center px-2.5 py-1.5 rounded-lg bg-white/[0.07] shrink-0">
-        <span className="text-[12px] font-semibold" style={{ color: chain.color }}>
-          {chain.displayName}
-        </span>
+      {/* DEX switcher: Alcor | Taco | NeftyBlocks */}
+      <div className="flex items-center bg-white/[0.07] rounded-lg p-0.5 shrink-0">
+        <button
+          onClick={() => onDexChange('alcor')}
+          className={`px-2.5 py-1.5 rounded-md text-[12px] font-semibold transition-all ${
+            dex === 'alcor' ? 'bg-[#f89422]/20 text-[#f89422] shadow-sm' : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          Alcor
+        </button>
+        <button
+          onClick={() => onDexChange('taco')}
+          className={`px-2.5 py-1.5 rounded-md text-[12px] font-semibold transition-all ${
+            dex === 'taco' ? 'bg-[#e63d3d]/20 text-[#e63d3d] shadow-sm' : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          Taco
+        </button>
+        <button
+          onClick={() => onDexChange('nefty')}
+          className={`px-2.5 py-1.5 rounded-md text-[12px] font-semibold transition-all ${
+            dex === 'nefty' ? 'bg-[#9b5de5]/20 text-[#9b5de5] shadow-sm' : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          NeftyBlocks
+        </button>
       </div>
+
+      {/* Chain badge — WAX-only for off-chain DEXes */}
+      {dex === 'alcor' && (
+        <div className="flex items-center px-2.5 py-1.5 rounded-lg bg-white/[0.07] shrink-0">
+          <span className="text-[12px] font-semibold" style={{ color: chain.color }}>
+            {chain.displayName}
+          </span>
+        </div>
+      )}
+      {(dex === 'taco' || dex === 'nefty') && (
+        <div className="flex items-center px-2.5 py-1.5 rounded-lg bg-white/[0.07] shrink-0">
+          <span className={`text-[12px] font-semibold ${dex === 'taco' ? 'text-[#e63d3d]' : 'text-[#9b5de5]'}`}>
+            WAX
+          </span>
+        </div>
+      )}
 
       {/* Metric selector */}
       <div className="flex items-center bg-white/[0.07] rounded-lg p-0.5 shrink-0">

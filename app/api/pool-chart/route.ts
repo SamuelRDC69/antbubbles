@@ -45,6 +45,31 @@ export async function GET(req: NextRequest) {
         cache.set(key, { data: cached, ts: Date.now() })
         return NextResponse.json(cached, { headers: { 'X-Data-Source': 'redis' } })
       }
+
+      const latestKey = REDIS_KEYS.poolChartLatest(
+        chain,
+        poolId,
+        resolution,
+        reverse === 'true',
+      )
+      let latest = await redis.get<unknown>(latestKey)
+
+      // Compatibility with chart entries written before stable latest keys
+      // existed. This can be removed after old exact-hour keys expire.
+      if (!latest) {
+        const suffix = reverse === 'true' ? 'true' : ''
+        const [, keys] = await redis.scan(0, {
+          match: `chart:pool:pool:${chain}:${poolId}:${resolution}:*:${suffix}`,
+          count: 100,
+        })
+        const newest = [...keys].sort().at(-1)
+        if (newest) latest = await redis.get<unknown>(newest)
+      }
+
+      if (latest) {
+        cache.set(key, { data: latest, ts: Date.now() })
+        return NextResponse.json(latest, { headers: { 'X-Data-Source': 'redis-latest' } })
+      }
     } catch { /* Redis unavailable */ }
   }
 

@@ -1,10 +1,12 @@
-node_modules
+.git
 .next
-out
-build
+node_modules
 .vercel
-coverage
 .dex-candles.db
 .dex-candles.db-shm
 .dex-candles.db-wal
 .offchain-token-snapshots.json
+worker/offchain-seed.db
+coverage
+build
+out

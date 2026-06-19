@@ -52,6 +52,13 @@ export interface AlcorPool {
   tvlUSD: number
 }
 
+export interface OffchainChartStep {
+  pairId: string
+  // true => tokenPrice = upstreamPrice / pairRatio
+  // false => tokenPrice = pairRatio * upstreamPrice
+  invert: boolean
+}
+
 export interface TokenBubbleData {
   id: string
   symbol: string
@@ -89,11 +96,19 @@ export interface TokenBubbleData {
   rankChange?: number
   // Historical change % for TVL and volume (from rolling daily snapshots)
   // tvlChange24h: TVL today vs yesterday  (positive = grew)
+  // vol24hChange: 24h volume today vs yesterday
   // vol7dChange:  volume7d this week vs 7 days ago
   // vol30dChange: volume30d this month vs 30 days ago
   tvlChange24h?: number
+  vol24hChange?: number
   vol7dChange?:  number
   vol30dChange?: number
+  // Taco Swap: pair ID from swap.taco pairs table (e.g. "WAXTAC")
+  tacoPairId?: string
+  // NeftyBlocks: pair ID from swap.nefty pairs table (e.g. "WAXNEFTY")
+  neftyPairId?: string
+  // Off-chain DEX chart composition path from this token back to WAX.
+  offchainChartPath?: OffchainChartStep[]
   // D3 simulation fields (set by BubbleChart)
   x?: number
   y?: number
@@ -104,6 +119,7 @@ export interface TokenBubbleData {
 
 export type Metric    = 'change' | 'price' | 'volume' | 'tvl' | 'mcap'
 export type Timeframe = '24h' | '7d' | '30d'
+export type DexMode   = 'alcor' | 'taco' | 'nefty'
 
 export interface DisplayMode {
   metric:    Metric

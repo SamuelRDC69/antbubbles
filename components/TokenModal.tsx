@@ -1,6 +1,6 @@
 'use client'
 
-import { TokenBubbleData, TokenPool, ChainConfig } from '@/lib/types'
+import { TokenBubbleData, TokenPool, ChainConfig, DexMode } from '@/lib/types'
 import { formatPrice, formatPriceParts, formatChange, formatVolume, ringColor } from '@/lib/bubbleUtils'
 import { getChart, setChart } from '@/lib/chartCache'
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
@@ -13,6 +13,7 @@ const LiquidityDepth = dynamic(() => import('./LiquidityDepth'), { ssr: false })
 interface Props {
   token:   TokenBubbleData
   chain:   ChainConfig
+  dex?:    DexMode
   onClose: () => void
 }
 
@@ -29,6 +30,20 @@ type ChartSource = 'spot' | 'lp'
 const RESOLUTION: Record<ChartRange, string> = {
   '1m': '1', '5m': '5', '15m': '15', '30m': '30',
   '1H': '60', '4H': '240', '1D': '1D', '1W': '1W', '1M': '1M',
+}
+
+// Resolution in seconds for SQLite-backed off-chain chart routes (Taco, Nefty).
+// These are NOT Alcor minute-based strings — they are raw bucket widths in seconds.
+const DB_RESOLUTION: Record<ChartRange, number> = {
+  '1m':  60,
+  '5m':  300,
+  '15m': 900,
+  '30m': 1800,
+  '1H':  3600,
+  '4H':  14400,
+  '1D':  86400,
+  '1W':  604800,
+  '1M':  2592000,   // won't have data for months, but won't break
 }
 
 // For line view: how far back to fetch (ms). Roughly 150–200 candles per window.
@@ -670,15 +685,19 @@ function PoolSelector({
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
-export default function TokenModal({ token, chain, onClose }: Props) {
+export default function TokenModal({ token, chain, dex = 'alcor', onClose }: Props) {
   const [logoError,    setLogoError]    = useState(false)
   const [contractCopied, setContractCopied] = useState(false)
-  const [chartRange,   setChartRange]   = useState<ChartRange>('1D')
+  // Off-chain DEXes default to 1H — enough data appears within minutes of server start.
+  // Alcor defaults to 1D (all-time line view looks best at that resolution).
+  const [chartRange,   setChartRange]   = useState<ChartRange>((dex === 'taco' || dex === 'nefty') ? '1H' : '1D')
   const [chartView,    setChartView]    = useState<ChartView>('line')
-  const [chartSource,  setChartSource]  = useState<ChartSource>(token.ticker_id ? 'spot' : 'lp')
   const [candles,      setCandles]      = useState<Candle[]>([])
   const [chartLoading, setChartLoading] = useState(true)
 
+  const isTaco    = dex === 'taco'
+  const isNefty   = dex === 'nefty'
+  const isOffChain = isTaco || isNefty
   const pools   = token.pools ?? []
   const hasSpot = !!token.ticker_id
   const hasLP   = pools.length > 0
@@ -687,6 +706,9 @@ export default function TokenModal({ token, chain, onClose }: Props) {
   const defaultPool = pools.find(p => p.counterpartId === `${chain.systemToken.toLowerCase()}-${chain.systemContract}`)
     ?? pools[0]
 
+  // The worker prewarms LP candles for tokens that have a pool, so prefer that
+  // source and only fall back to spot when no pool exists.
+  const [chartSource, setChartSource] = useState<ChartSource>(defaultPool ? 'lp' : 'spot')
   const [selectedPool, setSelectedPool] = useState<TokenPool | undefined>(defaultPool)
 
   const cacheRef = useRef<Map<string, Candle[]>>(new Map())
@@ -823,7 +845,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
       alcorPromise.then(d  => tryResolve(d, serverPromise))
     })
 
-    setChart(url, result)
+    if (result.length > 0) setChart(url, result)
     cacheRef.current.set(cacheKey, result)
     return result
   }, [token, chain])
@@ -831,8 +853,57 @@ export default function TokenModal({ token, chain, onClose }: Props) {
   // Clear cache only when the token changes (not on range/view switches)
   useEffect(() => { cacheRef.current.clear() }, [token.id])
 
-  // ── Load chart on param change ─────────────────────────────────────────────
+  // ── Off-chain DEX chart load (Taco / Nefty) ───────────────────────────────
+  // Uses the SQLite-backed chart route with full resolution + from/to support.
   useEffect(() => {
+    if (!isOffChain) return
+    const pairId = isTaco ? token.tacoPairId : token.neftyPairId
+    const path = token.offchainChartPath ?? []
+    if (!pairId && path.length === 0) return
+
+    setChartLoading(true)
+    setCandles([])
+
+    const ctrl = new AbortController()
+    abortRef.current?.abort()
+    abortRef.current = ctrl
+
+    // Use seconds-based resolution for SQLite routes (not Alcor's minute strings)
+    const resolution = DB_RESOLUTION[chartRange]
+    const endpoint   = isTaco ? 'taco-chart' : 'nefty-chart'
+
+    // Line view: tight recent window. Candle view: fetch all stored history.
+    const from = chartView === 'line'
+      ? roundHour(Date.now() - LINE_WINDOW[chartRange])
+      : 0   // all stored history for candle view
+    const to = roundHour(Date.now())
+
+    const search = new URLSearchParams({
+      token:      token.id,
+      resolution: String(resolution),
+      from:       String(from),
+      to:         String(to),
+      symbol:     token.symbol,
+    })
+    if (pairId) search.set('pair', pairId)
+    if (path.length > 0) search.set('path', JSON.stringify(path))
+
+    const url = `/api/${endpoint}?${search.toString()}`
+
+    fetch(url, { signal: ctrl.signal })
+      .then(r => r.json())
+      .then((data: Candle[]) => { if (!ctrl.signal.aborted) setCandles(data) })
+      .catch(() => {})
+      .finally(() => { if (!ctrl.signal.aborted) setChartLoading(false) })
+
+    return () => ctrl.abort()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOffChain, isTaco, token.tacoPairId, token.neftyPairId, chartRange, chartView])
+
+  // ── Load chart on param change (Alcor only) ────────────────────────────────
+  useEffect(() => {
+    if (isOffChain) return
+
     setChartLoading(true)
     setCandles([])
 
@@ -850,7 +921,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
       .finally(() => { if (!ctrl.signal.aborted) setChartLoading(false) })
 
     return () => ctrl.abort()
-  }, [chartRange, chartView, chartSource, selectedPool, token.id, fetchChart])
+  }, [isTaco, chartRange, chartView, chartSource, selectedPool, token.id, fetchChart])
 
   // Fetch all perf values using PERF_CFGS (exact windows, correct resolutions).
   // Runs on token/source/pool change; resets stale values first.
@@ -860,6 +931,9 @@ export default function TokenModal({ token, chain, onClose }: Props) {
       '1D': token.change24 || undefined,
       '1W': token.change7d  || undefined,
     })
+
+    // Off-chain DEX tokens don't use Alcor chart data for perf pills
+    if (isOffChain) return
 
     const ctrl = new AbortController()
 
@@ -954,7 +1028,9 @@ export default function TokenModal({ token, chain, onClose }: Props) {
     : selectedPool
     ? `https://${chain.id}.alcor.exchange/swap?pool_id=${selectedPool.id}`
     : null
-  const explorerUrl = `${chain.explorerBase}/account/${token.contract}`
+  const explorerUrl = isOffChain
+    ? `https://waxblock.io/account/${token.contract}`
+    : `${chain.explorerBase}/account/${token.contract}`
 
   // All ticker values (high24, low24, bid, ask) are in the quote currency (WAX for WAX-chain
   // spot pairs). Convert to USD the same way the main price is derived.
@@ -1211,12 +1287,26 @@ export default function TokenModal({ token, chain, onClose }: Props) {
 
           {/* Actions */}
           <div className="p-4 flex flex-col gap-2 border-t border-white/[0.06]">
-            {alcorUrl && (
+            {isTaco ? (
+              <a
+                href={`https://swap.tacocrypto.io/swap?output=${token.symbol}-${token.contract}`}
+                target="_blank" rel="noopener noreferrer"
+                className="w-full text-center py-2 rounded-xl bg-[#e63d3d] hover:bg-[#c52d2d] text-white font-semibold text-[13px] transition-colors">
+                Trade on Taco Swap ↗
+              </a>
+            ) : isNefty ? (
+              <a
+                href={`https://neftyblocks.com/swap?from=WAX&to=${token.symbol}`}
+                target="_blank" rel="noopener noreferrer"
+                className="w-full text-center py-2 rounded-xl bg-[#9b5de5] hover:bg-[#7c3aed] text-white font-semibold text-[13px] transition-colors">
+                Trade on NeftyBlocks ↗
+              </a>
+            ) : alcorUrl ? (
               <a href={alcorUrl} target="_blank" rel="noopener noreferrer"
                 className="w-full text-center py-2 rounded-xl bg-[#f89422] hover:bg-[#e07d10] text-white font-semibold text-[13px] transition-colors">
                 {token.ticker_id ? 'Trade on Alcor ↗' : 'View Pool ↗'}
               </a>
-            )}
+            ) : null}
             <a href={explorerUrl} target="_blank" rel="noopener noreferrer"
               className="w-full text-center py-2 rounded-xl bg-white/[0.07] hover:bg-white/[0.12] text-gray-400 hover:text-white font-medium text-[13px] transition-colors border border-white/[0.08]">
               Explorer ↗
@@ -1230,82 +1320,105 @@ export default function TokenModal({ token, chain, onClose }: Props) {
           {/* ── Toolbar row 1: chart-type controls + close button ───────── */}
           <div className="flex items-center gap-2 px-4 pt-2.5 pb-2 border-b border-white/[0.03] overflow-x-auto scrollbar-none">
 
-            {/* Line / Candles / Depth */}
-            <div className="flex items-center bg-white/[0.05] rounded-lg p-0.5 gap-0.5">
-              {(['line', 'candles'] as ChartView[]).map(v => (
-                <button key={v} onClick={() => setChartView(v)}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
-                    chartView === v ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
-                  }`}>
-                  {v === 'line'
-                    ? <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4" /></svg>
-                    : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="6" width="4" height="10" rx="0.5" strokeWidth={1.5}/><rect x="16" y="9" width="4" height="7" rx="0.5" strokeWidth={1.5}/><line x1="6" y1="3" x2="6" y2="6" strokeWidth={1.5} strokeLinecap="round"/><line x1="6" y1="16" x2="6" y2="19" strokeWidth={1.5} strokeLinecap="round"/><line x1="18" y1="6" x2="18" y2="9" strokeWidth={1.5} strokeLinecap="round"/><line x1="18" y1="16" x2="18" y2="19" strokeWidth={1.5} strokeLinecap="round"/></svg>
-                  }
-                  {v === 'line' ? 'Line' : 'Candles'}
-                </button>
-              ))}
-              {hasLP && (
-                <button onClick={() => setChartView('depth')}
-                  title="Liquidity Depth — shows where LP positions are concentrated across price levels"
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
-                    chartView === 'depth' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
-                  }`}>
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <line x1="4" y1="6"  x2="20" y2="6"  strokeWidth={2} strokeLinecap="round"/>
-                    <line x1="4" y1="10" x2="16" y2="10" strokeWidth={2} strokeLinecap="round"/>
-                    <line x1="4" y1="14" x2="20" y2="14" strokeWidth={2} strokeLinecap="round"/>
-                    <line x1="4" y1="18" x2="12" y2="18" strokeWidth={2} strokeLinecap="round"/>
-                  </svg>
-                  Depth
-                </button>
-              )}
-            </div>
-
-            {/* Spot / LP source toggle */}
-            {hasSpot && hasLP && (
+            {isOffChain ? (
+              /* Off-chain DEX: line + candles, no depth, no spot/lp */
               <div className="flex items-center bg-white/[0.05] rounded-lg p-0.5 gap-0.5">
-                <button onClick={() => setChartSource('spot')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all uppercase ${
-                    chartSource === 'spot' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
-                  }`}>Spot</button>
-                <button onClick={() => setChartSource('lp')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all uppercase ${
-                    chartSource === 'lp' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
-                  }`}>LP</button>
+                {(['line', 'candles'] as ChartView[]).map(v => (
+                  <button key={v} onClick={() => setChartView(v)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                      chartView === v ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
+                    }`}>
+                    {v === 'line'
+                      ? <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4" /></svg>
+                      : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="6" width="4" height="10" rx="0.5" strokeWidth={1.5}/><rect x="16" y="9" width="4" height="7" rx="0.5" strokeWidth={1.5}/><line x1="6" y1="3" x2="6" y2="6" strokeWidth={1.5} strokeLinecap="round"/><line x1="6" y1="16" x2="6" y2="19" strokeWidth={1.5} strokeLinecap="round"/><line x1="18" y1="6" x2="18" y2="9" strokeWidth={1.5} strokeLinecap="round"/><line x1="18" y1="16" x2="18" y2="19" strokeWidth={1.5} strokeLinecap="round"/></svg>
+                    }
+                    {v === 'line' ? 'Line' : 'Candles'}
+                  </button>
+                ))}
               </div>
-            )}
+            ) : (
+              <>
+                {/* Line / Candles / Depth */}
+                <div className="flex items-center bg-white/[0.05] rounded-lg p-0.5 gap-0.5">
+                  {(['line', 'candles'] as ChartView[]).map(v => (
+                    <button key={v} onClick={() => setChartView(v)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                        chartView === v ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
+                      }`}>
+                      {v === 'line'
+                        ? <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4" /></svg>
+                        : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="6" width="4" height="10" rx="0.5" strokeWidth={1.5}/><rect x="16" y="9" width="4" height="7" rx="0.5" strokeWidth={1.5}/><line x1="6" y1="3" x2="6" y2="6" strokeWidth={1.5} strokeLinecap="round"/><line x1="6" y1="16" x2="6" y2="19" strokeWidth={1.5} strokeLinecap="round"/><line x1="18" y1="6" x2="18" y2="9" strokeWidth={1.5} strokeLinecap="round"/><line x1="18" y1="16" x2="18" y2="19" strokeWidth={1.5} strokeLinecap="round"/></svg>
+                      }
+                      {v === 'line' ? 'Line' : 'Candles'}
+                    </button>
+                  ))}
+                  {hasLP && (
+                    <button onClick={() => setChartView('depth')}
+                      title="Liquidity Depth — shows where LP positions are concentrated across price levels"
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                        chartView === 'depth' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
+                      }`}>
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <line x1="4" y1="6"  x2="20" y2="6"  strokeWidth={2} strokeLinecap="round"/>
+                        <line x1="4" y1="10" x2="16" y2="10" strokeWidth={2} strokeLinecap="round"/>
+                        <line x1="4" y1="14" x2="20" y2="14" strokeWidth={2} strokeLinecap="round"/>
+                        <line x1="4" y1="18" x2="12" y2="18" strokeWidth={2} strokeLinecap="round"/>
+                      </svg>
+                      Depth
+                    </button>
+                  )}
+                </div>
 
-            {/* LP pool selector — custom table dropdown (multiple pools) or static badge (1 pool) */}
-            {(chartSource === 'lp' || (!hasSpot && hasLP)) && (
-              pools.length > 1 ? (
-                <PoolSelector
-                  pools={pools}
-                  selected={selectedPool}
-                  tokenSymbol={token.symbol}
-                  tokenLogoUrl={token.logoUrl}
-                  chain={chain}
-                  onSelect={setSelectedPool}
-                />
-              ) : selectedPool ? (
-                <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg bg-white/[0.05] border border-white/[0.08]">
-                  <PoolLogo src={token.logoUrl} symbol={token.symbol} size={14} />
-                  <span className="text-white">{token.symbol}</span>
-                  <span className="text-gray-600">/</span>
-                  <PoolLogo src={`/api/logo?id=${encodeURIComponent(selectedPool.counterpartId)}&chain=${chain.id}`} symbol={selectedPool.counterpartSymbol} size={14} />
-                  <span className="text-gray-300">{selectedPool.counterpartSymbol}</span>
-                </span>
-              ) : null
-            )}
+                {/* Spot / LP source toggle */}
+                {hasSpot && hasLP && (
+                  <div className="flex items-center bg-white/[0.05] rounded-lg p-0.5 gap-0.5">
+                    <button onClick={() => setChartSource('spot')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all uppercase ${
+                        chartSource === 'spot' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
+                      }`}>Spot</button>
+                    <button onClick={() => setChartSource('lp')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all uppercase ${
+                        chartSource === 'lp' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
+                      }`}>LP</button>
+                  </div>
+                )}
 
+                {/* LP pool selector */}
+                {(chartSource === 'lp' || (!hasSpot && hasLP)) && (
+                  pools.length > 1 ? (
+                    <PoolSelector
+                      pools={pools}
+                      selected={selectedPool}
+                      tokenSymbol={token.symbol}
+                      tokenLogoUrl={token.logoUrl}
+                      chain={chain}
+                      onSelect={setSelectedPool}
+                    />
+                  ) : selectedPool ? (
+                    <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg bg-white/[0.05] border border-white/[0.08]">
+                      <PoolLogo src={token.logoUrl} symbol={token.symbol} size={14} />
+                      <span className="text-white">{token.symbol}</span>
+                      <span className="text-gray-600">/</span>
+                      <PoolLogo src={`/api/logo?id=${encodeURIComponent(selectedPool.counterpartId)}&chain=${chain.id}`} symbol={selectedPool.counterpartSymbol} size={14} />
+                      <span className="text-gray-300">{selectedPool.counterpartSymbol}</span>
+                    </span>
+                  ) : null
+                )}
+              </>
+            )}
 
           </div>
 
-          {/* ── Toolbar row 2: timeframe pills (always stable, never wraps) ─ */}
+          {/* ── Toolbar row 2: timeframe pills ────────────────────────────── */}
           <div className="flex items-center gap-0 px-3 py-1.5 border-b border-white/[0.06]">
             <div className={`flex items-center bg-white/[0.04] rounded-lg p-0.5 gap-0.5 transition-opacity ${
               chartView === 'depth' ? 'opacity-30 pointer-events-none' : ''
             }`}>
-              {RANGES.map(r => (
+              {/* Off-chain: full industry-standard range minus 1M (needs months of data) */}
+              {(isOffChain
+                ? ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W'] as ChartRange[]
+                : RANGES
+              ).map(r => (
                 <button key={r} onClick={() => setChartRange(r)}
                   className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
                     chartRange === r ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
@@ -1363,16 +1476,28 @@ export default function TokenModal({ token, chain, onClose }: Props) {
 
           {/* Footer */}
           <div className="px-5 py-2.5 border-t border-white/[0.06] flex items-center justify-between">
-            <span className="text-[10px] text-gray-700">
-              {chartView === 'depth'
-                ? 'liquidity distribution · current snapshot · '
-                : chartView === 'candles'
-                ? `${chartRange} candles · full history · `
-                : `${chartRange} window · `}
-              <a href="https://alcor.exchange" target="_blank" rel="noopener noreferrer"
-                className="text-[#f89422] hover:underline">Alcor Exchange</a>
-            </span>
-            {alcorUrl && (
+            {isOffChain ? (
+              <span className="text-[10px] text-gray-700">
+                {chartRange} pool reserve history ·{' '}
+                {isTaco
+                  ? <a href="https://swap.tacocrypto.io" target="_blank" rel="noopener noreferrer"
+                      className="text-[#e63d3d] hover:underline">Taco Swap</a>
+                  : <a href="https://neftyblocks.com/swap" target="_blank" rel="noopener noreferrer"
+                      className="text-[#9b5de5] hover:underline">NeftyBlocks</a>
+                }
+              </span>
+            ) : (
+              <span className="text-[10px] text-gray-700">
+                {chartView === 'depth'
+                  ? 'liquidity distribution · current snapshot · '
+                  : chartView === 'candles'
+                  ? `${chartRange} candles · full history · `
+                  : `${chartRange} window · `}
+                <a href="https://alcor.exchange" target="_blank" rel="noopener noreferrer"
+                  className="text-[#f89422] hover:underline">Alcor Exchange</a>
+              </span>
+            )}
+            {!isOffChain && alcorUrl && (
               <a href={alcorUrl} target="_blank" rel="noopener noreferrer"
                 className="text-[10px] text-[#f89422] hover:underline font-medium">
                 Open on Alcor ↗

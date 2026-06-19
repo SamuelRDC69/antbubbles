@@ -26,10 +26,15 @@ export function getChart(url: string): Candle[] | null {
   const e = store.get(url)
   if (!e) return null
   if (Date.now() - e.ts > CHART_TTL_MS) { store.delete(url); return null }
+  if (!Array.isArray(e.data) || e.data.length === 0) {
+    store.delete(url)
+    return null
+  }
   return e.data
 }
 
 export function setChart(url: string, data: Candle[]): void {
+  if (!Array.isArray(data) || data.length === 0) return
   store.set(url, { data, ts: Date.now() })
 }
 
@@ -49,7 +54,7 @@ export function prefetchChart(url: string): void {
         close:  typeof c.close  === 'string' ? parseFloat(c.close  as unknown as string) : c.close,
         volume: c.volume,
       }))
-      setChart(url, normalized)
+      if (normalized.length > 0) setChart(url, normalized)
     })
     .catch(() => {})
     .finally(() => inflight.delete(url))

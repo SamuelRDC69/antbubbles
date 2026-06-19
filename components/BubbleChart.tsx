@@ -5,6 +5,11 @@ import { forceSimulation } from 'd3-force'
 import type { Simulation } from 'd3-force'
 import { TokenBubbleData, DisplayMode } from '@/lib/types'
 import {
+  canonicalLogoKey,
+  type LogoAtlasEntry,
+  type LogoAtlasManifest,
+} from '@/lib/logoManifest'
+import {
   computeRadii,
   bubbleFillColorForMode,
   ringColorForMode,
@@ -49,15 +54,78 @@ interface TooltipState {
 // Logos are served by our own /api/logo proxy (cached 24h) so all requests
 // can fire in parallel — no stagger needed.
 const imageCache = new Map<string, HTMLImageElement | null>()
+type LogoAsset = {
+  image: HTMLImageElement
+  sprite?: LogoAtlasEntry
+}
+
+let atlasPromise: Promise<{
+  image: HTMLImageElement
+  manifest: LogoAtlasManifest
+} | null> | null = null
 
 function loadImage(url: string): Promise<HTMLImageElement | null> {
   if (imageCache.has(url)) return Promise.resolve(imageCache.get(url)!)
   return new Promise(resolve => {
     const img = new Image()
     img.onload  = () => { imageCache.set(url, img);  resolve(img)  }
-    img.onerror = () => { imageCache.set(url, null); resolve(null) }
+    // Do not permanently cache transient rate-limit/network failures.
+    img.onerror = () => { imageCache.delete(url); resolve(null) }
+    img.decoding = 'async'
     img.src = url
   })
+}
+
+function loadAtlas() {
+  if (atlasPromise) return atlasPromise
+  atlasPromise = fetch('/api/logo-atlas?v=2', {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  })
+    .then(async (response) => {
+      if (!response.ok) return null
+      const manifest = await response.json() as LogoAtlasManifest | null
+      if (!manifest?.url) return null
+      const image = await loadImage(manifest.url)
+      return image ? { image, manifest } : null
+    })
+    .catch(() => null)
+  return atlasPromise
+}
+
+async function loadTokenLogo(token: TokenBubbleData): Promise<LogoAsset | null> {
+  const atlas = await loadAtlas()
+  const sprite = atlas?.manifest.entries[canonicalLogoKey(token)]
+  if (atlas && sprite) return { image: atlas.image, sprite }
+
+  const image = await loadImage(token.logoUrl)
+  return image ? { image } : null
+}
+
+function drawLogo(
+  ctx: CanvasRenderingContext2D,
+  asset: LogoAsset,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  if (asset.sprite) {
+    const { sprite } = asset
+    ctx.drawImage(
+      asset.image,
+      sprite.x,
+      sprite.y,
+      sprite.width,
+      sprite.height,
+      x,
+      y,
+      width,
+      height,
+    )
+    return
+  }
+  ctx.drawImage(asset.image, x, y, width, height)
 }
 
 // ── Offscreen-canvas helpers ──────────────────────────────────────────────────
@@ -87,7 +155,7 @@ type BubbleCanvasEntry = { key: string; canvas: HTMLCanvasElement }
 function paintBubbleContent(
   ctx:         CanvasRenderingContext2D,
   node:        SimNode,
-  img:         HTMLImageElement | null | undefined,
+  img:         LogoAsset | null | undefined,
   displayMode: DisplayMode,
   isMobile:    boolean,
 ) {
@@ -130,7 +198,7 @@ function paintBubbleContent(
     // Desktop tiny: logo or 2-char abbrev
     if (img) {
       const s = Math.round(r * 1.1)
-      ctx.drawImage(img, -(s >> 1), -(s >> 1), s, s)
+      drawLogo(ctx, img, -(s >> 1), -(s >> 1), s, s)
     } else {
       ctx.font         = `700 ${Math.max(6, Math.round(r * 0.55))}px Inter, system-ui, sans-serif`
       ctx.fillStyle    = '#ffffff'
@@ -142,7 +210,7 @@ function paintBubbleContent(
     // Desktop small: logo only — symbol name fallback if no logo
     if (img) {
       const s = Math.round(r * 1.1)
-      ctx.drawImage(img, -(s >> 1), -(s >> 1), s, s)
+      drawLogo(ctx, img, -(s >> 1), -(s >> 1), s, s)
     } else {
       ctx.font         = `700 ${Math.round(Math.max(7, r * 0.38))}px Inter, system-ui, sans-serif`
       ctx.fillStyle    = '#ffffff'
@@ -154,7 +222,7 @@ function paintBubbleContent(
     // Mobile small/medium: logo only — symbol name fallback if no logo
     if (img) {
       const s = Math.round(r * 1.4)   // fill more of the bubble with the logo
-      ctx.drawImage(img, -(s >> 1), -(s >> 1), s, s)
+      drawLogo(ctx, img, -(s >> 1), -(s >> 1), s, s)
     } else {
       ctx.font         = `700 ${Math.round(Math.max(7, r * 0.38))}px Inter, system-ui, sans-serif`
       ctx.fillStyle    = '#ffffff'
@@ -175,7 +243,7 @@ function paintBubbleContent(
     let   cursorY     = Math.round(-totalH / 2)
 
     if (hasLogo) {
-      ctx.drawImage(img!, -(logoH >> 1), cursorY, logoH, logoH)
+      drawLogo(ctx, img!, -(logoH >> 1), cursorY, logoH, logoH)
       cursorY += logoH + gap
     }
 
@@ -203,7 +271,7 @@ function paintBubbleContent(
 // radius, fill colour, or the displayed metric value actually changes.
 function getOrCreateBubbleCanvas(
   node:        SimNode,
-  img:         HTMLImageElement | null | undefined,
+  img:         LogoAsset | null | undefined,
   displayMode: DisplayMode,
   dpr:         number,
   isMobile:    boolean,
@@ -236,7 +304,7 @@ function getOrCreateBubbleCanvas(
 function drawBubble(
   ctx:            CanvasRenderingContext2D,
   node:           SimNode,
-  img:            HTMLImageElement | null | undefined,
+  img:            LogoAsset | null | undefined,
   isHovered:      boolean,
   isDragging:     boolean,
   isDimmed:       boolean,
@@ -277,7 +345,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
   const simRef       = useRef<Simulation<SimNode, undefined> | null>(null)
   const nodesRef     = useRef<SimNode[]>([])
   const rafRef       = useRef<number>(0)
-  const imagesRef    = useRef<Map<string, HTMLImageElement | null>>(new Map())
+  const imagesRef    = useRef<Map<string, LogoAsset | null>>(new Map())
   // Per-bubble offscreen canvas cache — keyed by node.id, invalidated on radius/value change
   const offscreenCacheRef = useRef<Map<string, BubbleCanvasEntry>>(new Map())
   const hoveredRef      = useRef<string | null>(null)
@@ -315,7 +383,12 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
   useEffect(() => {
     for (const t of tokens) {
       if (!imagesRef.current.has(t.id)) {
-        loadImage(t.logoUrl).then(img => imagesRef.current.set(t.id, img))
+        loadTokenLogo(t).then((img) => {
+          imagesRef.current.set(t.id, img)
+          // The first bubble frame may be cached before the shared atlas has
+          // decoded. Rebuild that bubble once its sprite becomes available.
+          offscreenCacheRef.current.delete(t.id)
+        })
       }
     }
   }, [tokens])
@@ -410,6 +483,9 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
         node.volume7dusd  = fresh.volume7dusd
         node.volume30dusd = fresh.volume30dusd
         node.tvlUsd       = fresh.tvlUsd
+        node.vol24hChange = fresh.vol24hChange
+        node.vol7dChange  = fresh.vol7dChange
+        node.vol30dChange = fresh.vol30dChange
         node.supply       = fresh.supply
         node.marketCapUsd = fresh.marketCapUsd
 

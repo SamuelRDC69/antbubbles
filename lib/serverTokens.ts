@@ -108,9 +108,11 @@ export async function getTokensForChain(chainId: string): Promise<{
   const base = chain.apiBase
 
   try {
+    const nextFetchInit = { next: { revalidate: TTL_S } } as RequestInit & { next: { revalidate: number } }
+
     const [tokensRes, tickersRes, poolsRes] = await Promise.all([
-      fetch(`${base}/tokens`,     { signal: AbortSignal.timeout(15_000), next: { revalidate: TTL_S } }),
-      fetch(`${base}/tickers`,    { signal: AbortSignal.timeout(15_000), next: { revalidate: TTL_S } }),
+      fetch(`${base}/tokens`,     { signal: AbortSignal.timeout(15_000), ...nextFetchInit }),
+      fetch(`${base}/tickers`,    { signal: AbortSignal.timeout(15_000), ...nextFetchInit }),
       // pools response can be >2 MB so Vercel Data Cache can't store it — rely on L1 Map only
       fetch(`${base}/swap/pools`, { signal: AbortSignal.timeout(15_000) }),
     ])

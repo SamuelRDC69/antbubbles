@@ -40,7 +40,13 @@ export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   // Rate-limit our API routes only
-  if (pathname.startsWith('/api/')) {
+  // Logos are immutable CDN assets and load in a large initial burst. Counting
+  // them against the API data limit causes valid image requests to be throttled.
+  if (
+    pathname.startsWith('/api/')
+    && pathname !== '/api/logo'
+    && pathname !== '/api/logo-atlas'
+  ) {
     const ip  = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '127.0.0.1'
     const rl  = await getRatelimit()
     const { success, limit, remaining } = await rl.limit(ip)

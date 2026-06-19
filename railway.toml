@@ -3,3 +3,4 @@ buildCommand = "cd worker && npm ci"
 
 [deploy]
 startCommand = "cd worker && npm run start"
+healthcheckPath = "/healthz"

@@ -29,8 +29,26 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Deployment Notes
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Production uses two services:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Web app: Next.js server on your existing web deployment
+2. Worker: always-on Railway service running `worker/index.ts`
+
+Required shared env vars:
+
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`
+
+The worker now serves:
+
+- `GET /healthz`
+
+The worker is responsible for:
+
+- polling Alcor snapshots into Redis
+- polling Taco/Nefty token snapshots into Redis
+- building Taco/Nefty chart series from the SQLite candle store and publishing them into Redis
+
+The web app reads Taco/Nefty modal chart data from shared Redis in production, which avoids depending on local disk or a public worker chart endpoint.
