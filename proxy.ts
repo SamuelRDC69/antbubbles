@@ -41,17 +41,26 @@ export async function proxy(req: NextRequest) {
 
   // Rate-limit our API routes only
   if (pathname.startsWith('/api/')) {
-    const ip  = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '127.0.0.1'
-    const rl  = await getRatelimit()
-    const { success, limit, remaining } = await rl.limit(ip)
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '127.0.0.1'
+    let result: { success: boolean; limit: number; remaining: number }
 
-    if (!success) {
+    try {
+      const rl = await getRatelimit()
+      result = await rl.limit(ip)
+    } catch (error) {
+      console.warn('[proxy] rate limit unavailable; allowing request', error)
+      const res = NextResponse.next()
+      addSecurityHeaders(res)
+      return res
+    }
+
+    if (!result.success) {
       return new NextResponse('Too Many Requests', {
         status:  429,
         headers: {
           'Content-Type':          'text/plain',
           'Retry-After':           '60',
-          'X-RateLimit-Limit':     String(limit),
+          'X-RateLimit-Limit':     String(result.limit),
           'X-RateLimit-Remaining': '0',
         },
       })
@@ -59,8 +68,8 @@ export async function proxy(req: NextRequest) {
 
     const res = NextResponse.next()
     addSecurityHeaders(res)
-    res.headers.set('X-RateLimit-Limit',     String(limit))
-    res.headers.set('X-RateLimit-Remaining', String(remaining))
+    res.headers.set('X-RateLimit-Limit',     String(result.limit))
+    res.headers.set('X-RateLimit-Remaining', String(result.remaining))
     return res
   }
 
