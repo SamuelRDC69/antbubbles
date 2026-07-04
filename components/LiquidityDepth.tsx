@@ -17,10 +17,23 @@ interface DepthData {
   positions: Position[]
 }
 
+function parsePoolToken(value: unknown): { symbol: string } | null {
+  if (!value || typeof value !== 'object') return null
+  const symbol = (value as { symbol?: unknown }).symbol
+  return typeof symbol === 'string' ? { symbol } : null
+}
+
 interface Bucket {
   tickMid:   number
   priceMid:  number
   liquidity: number
+}
+
+interface DepthPool {
+  id: number
+  tvl: number
+  reversed: boolean
+  counterpartSymbol: string
 }
 
 interface Props {
@@ -30,6 +43,8 @@ interface Props {
   currentUsdPrice: number
   tokenSymbol:     string
   counterpartSymbol: string
+  mode?:           'single' | 'combined'
+  pools?:          DepthPool[]
 }
 
 const N_BUCKETS  = 80
@@ -74,14 +89,44 @@ function buildBuckets(
   })
 }
 
+function buildCombinedBuckets(
+  depths: Array<{ pool: DepthPool; data: DepthData }>,
+  currentUsdPrice: number,
+): Bucket[] {
+  const lowPrice  = currentUsdPrice * Math.pow(1.0001, -TICK_RANGE)
+  const highPrice = currentUsdPrice * Math.pow(1.0001, TICK_RANGE)
+  const step = (highPrice - lowPrice) / N_BUCKETS
+
+  const buckets = Array.from({ length: N_BUCKETS }, (_, i) => ({
+    tickMid: i,
+    priceMid: lowPrice + (i + 0.5) * step,
+    liquidity: 0,
+  }))
+
+  for (const { pool, data } of depths) {
+    const poolBuckets = buildBuckets(data, currentUsdPrice, pool.reversed)
+    const rawTotal = poolBuckets.reduce((sum, bucket) => sum + bucket.liquidity, 0)
+    if (rawTotal <= 0 || pool.tvl <= 0) continue
+
+    for (const bucket of poolBuckets) {
+      if (bucket.liquidity <= 0) continue
+      const idx = Math.floor((bucket.priceMid - lowPrice) / step)
+      if (idx < 0 || idx >= buckets.length) continue
+      buckets[idx].liquidity += bucket.liquidity / rawTotal * pool.tvl
+    }
+  }
+
+  return buckets
+}
+
 function draw(
   canvas:          HTMLCanvasElement,
   buckets:         Bucket[],
-  currentTick:     number,
   currentUsdPrice: number,
-  reversed:        boolean,
   tokenSymbol:     string,
   counterpartSymbol: string,
+  mode:            'single' | 'combined' = 'single',
+  poolCount = 1,
 ) {
   const dpr  = window.devicePixelRatio || 1
   const rect = canvas.getBoundingClientRect()
@@ -101,16 +146,22 @@ function draw(
 
   const maxLiq = Math.max(...buckets.map(b => b.liquidity), 1)
 
-  // Current-price bucket index (buckets[0] = lowest price when not reversed)
+  // Current-price bucket index (buckets[0] = lowest price)
   const currentIdx = buckets.reduce((best, b, i) =>
-    Math.abs(b.tickMid - currentTick) < Math.abs(buckets[best].tickMid - currentTick) ? i : best
+    Math.abs(b.priceMid - currentUsdPrice) < Math.abs(buckets[best].priceMid - currentUsdPrice) ? i : best
   , Math.floor(N_BUCKETS / 2))
 
   // ── Header label ────────────────────────────────────────────────────────────
   ctx.font      = 'bold 10px system-ui, sans-serif'
   ctx.fillStyle = '#6b7280'
   ctx.textAlign = 'left'
-  ctx.fillText(`${tokenSymbol} / ${counterpartSymbol}  liquidity depth`, PAD_L, 16)
+  ctx.fillText(
+    mode === 'combined'
+      ? `${tokenSymbol} combined USD liquidity depth · ${poolCount} pools`
+      : `${tokenSymbol} / ${counterpartSymbol}  liquidity depth`,
+    PAD_L,
+    16,
+  )
 
   // Legend dots
   const dotY = 11
@@ -204,9 +255,10 @@ function draw(
 
 export default function LiquidityDepth({
   poolId, chain, reversed, currentUsdPrice, tokenSymbol, counterpartSymbol,
+  mode = 'single', pools = [],
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [data,    setData]    = useState<DepthData | null>(null)
+  const [data,    setData]    = useState<{ buckets: Bucket[]; poolCount: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(false)
 
@@ -215,15 +267,13 @@ export default function LiquidityDepth({
     setError(false)
     const ctrl = new AbortController()
 
-    // Parallel race: server cache vs direct Alcor (same pattern as charts)
-    const base = `https://${chain}.alcor.exchange/api/v2/swap/pools/${poolId}`
-    const parseDepth = (pool: Record<string,unknown>, posRaw: unknown) => {
+    const parseDepth = (pool: Record<string,unknown>, posRaw: unknown): DepthData => {
       const positions = (Array.isArray(posRaw) ? posRaw : (posRaw as Record<string,unknown>)?.rows ?? []) as Record<string,unknown>[]
       return {
         currentTick: typeof pool?.tick === 'number' ? pool.tick : 0,
         tickSpacing:  typeof pool?.tickSpacing === 'number' ? pool.tickSpacing : 1,
-        tokenA: pool?.tokenA ?? null,
-        tokenB: pool?.tokenB ?? null,
+        tokenA: parsePoolToken(pool?.tokenA),
+        tokenB: parsePoolToken(pool?.tokenB),
         positions: positions
           .map((p) => ({
             tickLower: Number(p.tickLower ?? p.tick_lower ?? 0),
@@ -234,44 +284,89 @@ export default function LiquidityDepth({
       }
     }
 
-    const serverFetch = fetch(`/api/pool-depth?chain=${chain}&pool_id=${poolId}`, { signal: ctrl.signal })
-      .then(r => r.ok ? r.json() : null).catch(() => null)
+    const fetchDepth = async (id: number): Promise<DepthData | null> => {
+      const base = `https://${chain}.alcor.exchange/api/v2/swap/pools/${id}`
+      const serverFetch = fetch(`/api/pool-depth?chain=${chain}&pool_id=${id}`, { signal: ctrl.signal })
+        .then(r => r.ok ? r.json() : null).catch(() => null)
 
-    const alcorFetch = Promise.all([
-      fetch(base,                { signal: ctrl.signal }).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`${base}/positions`, { signal: ctrl.signal }).then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([pool, pos]) => pool ? parseDepth(pool as Record<string,unknown>, pos) : null)
-      .catch(() => null)
+      const alcorFetch = Promise.all([
+        fetch(base,                { signal: ctrl.signal }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${base}/positions`, { signal: ctrl.signal }).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]).then(([pool, pos]) => pool ? parseDepth(pool as Record<string,unknown>, pos) : null)
+        .catch(() => null)
 
-    Promise.race([
-      serverFetch.then(d  => d  ?? alcorFetch),
-      alcorFetch.then(d   => d  ?? serverFetch),
-    ]).then(async result => {
-      const d = result instanceof Promise ? await result : result
-      if (d) { setData(d); setLoading(false) }
-      else { setError(true); setLoading(false) }
-    }).catch(e => { if (!ctrl.signal.aborted) { setError(true); setLoading(false) } })
+      const result = await Promise.race([
+        serverFetch.then(d => d ?? alcorFetch),
+        alcorFetch.then(d => d ?? serverFetch),
+      ])
+      return result instanceof Promise ? result : result
+    }
+
+    const load = async () => {
+      if (mode === 'combined') {
+        const candidates = pools
+          .filter(pool => pool.id !== 0 && pool.tvl > 0)
+          .slice(0, 10)
+        const settled = await Promise.allSettled(
+          candidates.map(async pool => ({ pool, data: await fetchDepth(pool.id) }))
+        )
+        const depths = settled
+          .filter((result): result is PromiseFulfilledResult<{ pool: DepthPool; data: DepthData | null }> =>
+            result.status === 'fulfilled' && Boolean(result.value.data?.positions.length)
+          )
+          .map(result => ({ pool: result.value.pool, data: result.value.data! }))
+
+        const buckets = buildCombinedBuckets(depths, currentUsdPrice)
+        if (buckets.some(bucket => bucket.liquidity > 0)) {
+          setData({ buckets, poolCount: depths.length })
+          setLoading(false)
+        } else {
+          setError(true)
+          setLoading(false)
+        }
+        return
+      }
+
+      const d = await fetchDepth(poolId)
+      if (d) {
+        setData({
+          buckets: buildBuckets(d, currentUsdPrice, reversed),
+          poolCount: 1,
+        })
+        setLoading(false)
+      } else {
+        setError(true)
+        setLoading(false)
+      }
+    }
+
+    load().catch(() => {
+      if (!ctrl.signal.aborted) {
+        setError(true)
+        setLoading(false)
+      }
+    })
 
     return () => ctrl.abort()
-  }, [poolId, chain])
+  }, [poolId, chain, reversed, currentUsdPrice, mode, pools])
 
   // Redraw whenever data, size, or price changes
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !data) return
 
-    const buckets = buildBuckets(data, currentUsdPrice, reversed)
+    const { buckets } = data
     const hasLiq  = buckets.some(b => b.liquidity > 0)
     if (!hasLiq) return
 
-    draw(canvas, buckets, data.currentTick, currentUsdPrice, reversed, tokenSymbol, counterpartSymbol)
+    draw(canvas, buckets, currentUsdPrice, tokenSymbol, counterpartSymbol, mode, data.poolCount)
 
     const ro = new ResizeObserver(() => {
-      draw(canvas, buckets, data.currentTick, currentUsdPrice, reversed, tokenSymbol, counterpartSymbol)
+      draw(canvas, buckets, currentUsdPrice, tokenSymbol, counterpartSymbol, mode, data.poolCount)
     })
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [data, currentUsdPrice, reversed, tokenSymbol, counterpartSymbol])
+  }, [data, currentUsdPrice, tokenSymbol, counterpartSymbol, mode])
 
   if (loading) return (
     <div className="w-full h-full flex items-center justify-center gap-1.5">
@@ -289,12 +384,6 @@ export default function LiquidityDepth({
           d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
       </svg>
       <span className="text-[13px]">Couldn't load liquidity data</span>
-    </div>
-  )
-
-  if (data && !data.positions.length) return (
-    <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-gray-700">
-      <span className="text-[13px]">No open positions in this pool</span>
     </div>
   )
 

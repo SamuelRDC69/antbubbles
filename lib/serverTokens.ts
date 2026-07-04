@@ -4,6 +4,7 @@
 
 import { CHAINS } from './chains'
 import { mergeTokenData } from './alcor'
+import { alcorLogoManifestKey, loadAlcorLogoManifest } from './tokenLogos'
 import { TokenBubbleData } from './types'
 import { AlcorToken, AlcorTicker, AlcorPool } from './types'
 
@@ -127,7 +128,11 @@ export async function getTokensForChain(chainId: string): Promise<{
       poolsRes.json(),
     ])
 
-    const merged    = mergeTokenData(tokens, tickers, pools, chain)
+    const logoManifest = await loadAlcorLogoManifest()
+    const merged = mergeTokenData(tokens, tickers, pools, chain).map((token) => ({
+      ...token,
+      logoUrl: logoManifest.get(alcorLogoManifestKey(chain.id, token.symbol, token.contract)) ?? token.logoUrl,
+    }))
     const withRanks = merged.map((t, i) => ({ ...t, rank: i + 1 }))
 
     // ── Rank change ────────────────────────────────────────────────────────

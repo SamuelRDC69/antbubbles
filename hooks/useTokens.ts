@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { TokenBubbleData, ChainConfig } from '@/lib/types'
+import { TokenBubbleData, ChainConfig, TokenSupplyInfo } from '@/lib/types'
 import { fetchSupplies } from '@/lib/alcor'
 import { DEFAULT_CHAIN } from '@/lib/chains'
 
 const CACHE_MAX_AGE  = 5 * 60 * 1000   // 5 min — show stale data up to this old
-const cacheKey = (chainId: string) => `abt:v1:${chainId}`
+const cacheKey = (chainId: string) => `abt:v2:${chainId}`
 
 // ── localStorage helpers (safe — no-ops on server / quota errors) ─────────────
 
@@ -52,18 +52,46 @@ export function useTokens(
   const [connected,    setConnected]   = useState(false)
   const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const supplyMapRef   = useRef<Map<string, number>>(new Map())
+  const supplyMapRef   = useRef<Map<string, TokenSupplyInfo>>(new Map())
   const supplyChainRef = useRef<string>('')
 
   const applySupply = useCallback((
     list: TokenBubbleData[],
-    map:  Map<string, number>,
+    map:  Map<string, TokenSupplyInfo>,
   ): TokenBubbleData[] =>
     list.map(t => {
-      const supply = map.get(t.id)
-      return supply !== undefined ? { ...t, supply, marketCapUsd: supply * t.usd_price } : t
+      const info = map.get(t.id)
+      return info !== undefined
+        ? {
+            ...t,
+            supply: info.circulating,
+            totalSupply: info.total,
+            burnedSupply: info.burned,
+            burnedSupplyPct: info.burnedPct,
+            marketCapUsd: info.circulating * t.usd_price,
+          }
+        : t
     })
   , [])
+
+  const ensureSupply = useCallback((list: TokenBubbleData[], chainId: string) => {
+    if (supplyChainRef.current === chainId || list.length === 0) return
+    supplyChainRef.current = chainId
+
+    const refs = list.map(t => ({ id: t.id, contract: t.contract, symbol: t.symbol }))
+    fetchSupplies({ id: chainId } as ChainConfig, refs)
+      .then(map => {
+        supplyMapRef.current = map
+        setTokens(prev => {
+          const updated = applySupply(prev, map)
+          lsWrite(chainId, updated)
+          return updated
+        })
+      })
+      .catch(() => {
+        supplyChainRef.current = ''
+      })
+  }, [applySupply])
 
   const handleTokenData = useCallback((merged: TokenBubbleData[], chainId: string) => {
     const withSupply = applySupply(merged, supplyMapRef.current)
@@ -83,21 +111,8 @@ export function useTokens(
     lsWrite(chainId, withSupply)
 
     // Fetch supplies once per chain session (background — doesn't block render)
-    if (supplyChainRef.current !== chainId) {
-      const refs = merged.map(t => ({ id: t.id, contract: t.contract, symbol: t.symbol }))
-      fetchSupplies({ id: chainId } as ChainConfig, refs)
-        .then(map => {
-          supplyMapRef.current   = map
-          supplyChainRef.current = chainId
-          setTokens(prev => {
-            const updated = applySupply(prev, map)
-            lsWrite(chainId, updated)
-            return updated
-          })
-        })
-        .catch(() => {})
-    }
-  }, [applySupply])
+    ensureSupply(merged, chainId)
+  }, [applySupply, ensureSupply])
 
   useEffect(() => {
     supplyChainRef.current = ''
@@ -111,11 +126,13 @@ export function useTokens(
       if (cached.length > 0) {
         setTokens(cached)
         setLoading(false)
+        ensureSupply(cached, chain.id)
       } else {
         setLoading(true)
         setTokens([])
       }
     }
+    if (hasSeeded) ensureSupply(initialTokens, chain.id)
     setError(null)
 
     // ── EventSource ──────────────────────────────────────────────────────────

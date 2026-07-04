@@ -1,4 +1,4 @@
-import { AlcorToken, AlcorTicker, AlcorPool, TokenBubbleData, TokenPool, ChainConfig } from './types'
+import { AlcorToken, AlcorTicker, AlcorPool, TokenBubbleData, TokenPool, ChainConfig, TokenSupplyInfo } from './types'
 
 // Single call — server merges tokens/tickers/pools and returns processed data.
 export async function fetchMergedTokens(chain: ChainConfig): Promise<TokenBubbleData[]> {
@@ -10,7 +10,7 @@ export async function fetchMergedTokens(chain: ChainConfig): Promise<TokenBubble
 export async function fetchSupplies(
   chain: ChainConfig,
   tokens: Array<{ id: string; contract: string; symbol: string }>,
-): Promise<Map<string, number>> {
+): Promise<Map<string, TokenSupplyInfo>> {
   try {
     const res = await fetch('/api/supplies', {
       method: 'POST',
@@ -18,8 +18,13 @@ export async function fetchSupplies(
       body: JSON.stringify({ chain: chain.id, tokens }),
     })
     if (!res.ok) return new Map()
-    const data: Record<string, number> = await res.json()
-    return new Map(Object.entries(data))
+    const data: Record<string, TokenSupplyInfo | number> = await res.json()
+    return new Map(Object.entries(data).map(([id, value]) => {
+      if (typeof value === 'number') {
+        return [id, { total: value, circulating: value, burned: 0, burnedPct: 0 }]
+      }
+      return [id, value]
+    }))
   } catch {
     return new Map()
   }
@@ -29,9 +34,33 @@ export function getLogoUrl(chain: ChainConfig, tokenId: string): string {
   return `/api/logo?id=${encodeURIComponent(tokenId)}&chain=${chain.id}`
 }
 
+function canonicalTokenKey(token: Pick<AlcorToken, 'contract' | 'symbol'>): string {
+  return `${token.contract.trim().toLowerCase()}:${token.symbol.trim().toLowerCase()}`
+}
+
 // Minimum thresholds to filter out dead/scam tokens
 const MIN_VOL24_USD = 5     // at least $5 combined 24h volume
 const MIN_TVL_USD   = 100   // OR at least $100 TVL in pools
+const MIN_CHANGE_TVL_USD = 100
+const MIN_TICKER_CHANGE_VOL24_USD = 1000
+const MAX_ABS_POOL_CHANGE = 500
+
+function weightedAverageChange(
+  pools: Array<{ change: number; tvl: number; volume24: number }>,
+): number | null {
+  const valid = pools.filter((pool) =>
+    Number.isFinite(pool.change)
+    && Math.abs(pool.change) <= MAX_ABS_POOL_CHANGE
+    && pool.tvl >= MIN_CHANGE_TVL_USD
+  )
+  if (valid.length === 0) return null
+
+  const weightSum = valid.reduce((sum, pool) => sum + Math.max(pool.tvl, pool.volume24, 1), 0)
+  if (weightSum <= 0) return null
+  return valid.reduce((sum, pool) =>
+    sum + pool.change * Math.max(pool.tvl, pool.volume24, 1), 0
+  ) / weightSum
+}
 
 export function mergeTokenData(
   tokens: AlcorToken[],
@@ -56,6 +85,8 @@ export function mergeTokenData(
     vol24usd:  number
     vol7dusd:  number
     vol30dusd: number
+    changes:   Array<{ change: number; tvl: number; volume24: number }>
+    weekChanges: Array<{ change: number; tvl: number; volume24: number }>
     pools:     TokenPool[]
   }
   const poolMap = new Map<string, PoolAgg>()
@@ -68,7 +99,7 @@ export function mergeTokenData(
       const tvl = pool.tvlUSD || 0
       const agg = poolMap.get(side.id) ?? {
         totalTvl: 0, wChange24: 0, wChange7d: 0,
-        vol24usd: 0, vol7dusd: 0, vol30dusd: 0, pools: [],
+        vol24usd: 0, vol7dusd: 0, vol30dusd: 0, changes: [], weekChanges: [], pools: [],
       }
       agg.totalTvl  += tvl
       agg.wChange24 += (pool.change24    || 0) * tvl
@@ -76,13 +107,17 @@ export function mergeTokenData(
       agg.vol24usd  += pool.volumeUSD24  || 0
       agg.vol7dusd  += pool.volumeUSDWeek  || 0
       agg.vol30dusd += pool.volumeUSDMonth || 0
-      agg.pools.push({
-        id:                pool.id,
-        tvl,
-        counterpartId:     counterpart.id,
-        counterpartSymbol: counterpart.symbol,
-        reversed:          side === pool.tokenB, // tokenB needs reverse=true to show correct price direction
-      })
+      agg.changes.push({ change: pool.change24 || 0, tvl, volume24: pool.volumeUSD24 || 0 })
+      agg.weekChanges.push({ change: pool.changeWeek || 0, tvl, volume24: pool.volumeUSDWeek || 0 })
+      if (tvl > 0) {
+        agg.pools.push({
+          id:                pool.id,
+          tvl,
+          counterpartId:     counterpart.id,
+          counterpartSymbol: counterpart.symbol,
+          reversed:          side === pool.tokenB, // tokenB needs reverse=true to show correct price direction
+        })
+      }
       poolMap.set(side.id, agg)
     }
   }
@@ -92,7 +127,7 @@ export function mergeTokenData(
     agg.pools.sort((a, b) => b.tvl - a.tvl)
   }
 
-  const results: TokenBubbleData[] = []
+  const byIdentity = new Map<string, TokenBubbleData>()
 
   for (const token of tokens) {
     if (token.id === systemTokenId) continue
@@ -115,16 +150,18 @@ export function mergeTokenData(
 
     // change24: pool TVL-weighted average is far more reliable than ticker.change24
     // (ticker.change24 is 0 for ~99% of WAX pairs). Fall back to ticker only if no pool data.
-    const poolChange24 = agg && agg.totalTvl > 0 ? agg.wChange24 / agg.totalTvl : null
-    const change24     = poolChange24 !== null
-      ? poolChange24
-      : (ticker?.change24 ?? 0)
+    const poolChange24 = agg ? weightedAverageChange(agg.changes) : null
+    const tickerChange24 = ticker
+      && Number.isFinite(ticker.change24)
+      && Math.abs(ticker.change24) <= MAX_ABS_POOL_CHANGE
+      && volume24usd >= MIN_TICKER_CHANGE_VOL24_USD
+      ? ticker.change24
+      : 0
+    const change24 = poolChange24 !== null ? poolChange24 : tickerChange24
 
-    const change7d = agg && agg.totalTvl > 0
-      ? agg.wChange7d / agg.totalTvl
-      : undefined
+    const change7d = agg ? weightedAverageChange(agg.weekChanges) ?? undefined : undefined
 
-    results.push({
+    const mergedToken: TokenBubbleData = {
       id:           token.id,
       symbol:       token.symbol,
       contract:     token.contract,
@@ -147,9 +184,15 @@ export function mergeTokenData(
       volume30dusd: agg && agg.vol30dusd > 0 ? agg.vol30dusd : undefined,
       tvlUsd,
       pools:        agg?.pools ?? [],
-    })
+    }
+
+    const key = canonicalTokenKey(token)
+    const existing = byIdentity.get(key)
+    if (!existing || (mergedToken.tvlUsd ?? 0) > (existing.tvlUsd ?? 0) || mergedToken.volume24usd > existing.volume24usd) {
+      byIdentity.set(key, mergedToken)
+    }
   }
 
   // Sort by Alcor score descending (100 = best). Tokens without a score go last.
-  return results.sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
+  return [...byIdentity.values()].sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
 }

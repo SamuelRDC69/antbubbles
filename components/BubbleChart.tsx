@@ -55,7 +55,9 @@ function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise(resolve => {
     const img = new Image()
     img.onload  = () => { imageCache.set(url, img);  resolve(img)  }
-    img.onerror = () => { imageCache.set(url, null); resolve(null) }
+    // Do not permanently cache transient CDN/network failures.
+    img.onerror = () => { imageCache.delete(url); resolve(null) }
+    img.decoding = 'async'
     img.src = url
   })
 }
@@ -315,7 +317,10 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
   useEffect(() => {
     for (const t of tokens) {
       if (!imagesRef.current.has(t.id)) {
-        loadImage(t.logoUrl).then(img => imagesRef.current.set(t.id, img))
+        loadImage(t.logoUrl).then((img) => {
+          imagesRef.current.set(t.id, img)
+          offscreenCacheRef.current.delete(t.id)
+        })
       }
     }
   }, [tokens])
@@ -411,6 +416,9 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
         node.volume30dusd = fresh.volume30dusd
         node.tvlUsd       = fresh.tvlUsd
         node.supply       = fresh.supply
+        node.totalSupply  = fresh.totalSupply
+        node.burnedSupply = fresh.burnedSupply
+        node.burnedSupplyPct = fresh.burnedSupplyPct
         node.marketCapUsd = fresh.marketCapUsd
 
         const newR = radii.get(node.id) ?? node.radius

@@ -6,6 +6,13 @@ export interface TokenPool {
   reversed:          boolean  // true when our token is tokenB (price chart needs &reverse=true)
 }
 
+export interface TokenSupplyInfo {
+  total: number
+  circulating: number
+  burned: number
+  burnedPct: number
+}
+
 export interface AlcorToken {
   contract:        string
   decimals:        number
@@ -78,6 +85,9 @@ export interface TokenBubbleData {
   pools?: TokenPool[]
   // Market cap (from on-chain supply)
   supply?: number
+  totalSupply?: number
+  burnedSupply?: number
+  burnedSupplyPct?: number
   marketCapUsd?: number
   // Token precision (decimal places), e.g. 8 for WAX, 4 for USDT
   decimals?: number

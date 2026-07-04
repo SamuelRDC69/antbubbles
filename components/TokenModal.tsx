@@ -24,6 +24,7 @@ interface Candle {
 type ChartRange  = '1m' | '5m' | '15m' | '30m' | '1H' | '4H' | '1D' | '1W' | '1M'
 type ChartView   = 'line' | 'candles' | 'depth'
 type ChartSource = 'spot' | 'lp'
+type DepthMode   = 'pool' | 'combined'
 
 // Direct 1:1 mapping to Alcor resolution param
 const RESOLUTION: Record<ChartRange, string> = {
@@ -676,6 +677,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
   const [chartRange,   setChartRange]   = useState<ChartRange>('1D')
   const [chartView,    setChartView]    = useState<ChartView>('line')
   const [chartSource,  setChartSource]  = useState<ChartSource>(token.ticker_id ? 'spot' : 'lp')
+  const [depthMode,    setDepthMode]    = useState<DepthMode>('pool')
   const [candles,      setCandles]      = useState<Candle[]>([])
   const [chartLoading, setChartLoading] = useState(true)
 
@@ -688,6 +690,10 @@ export default function TokenModal({ token, chain, onClose }: Props) {
     ?? pools[0]
 
   const [selectedPool, setSelectedPool] = useState<TokenPool | undefined>(defaultPool)
+  const depthPool = useMemo(() => {
+    if (!selectedPool || selectedPool.id !== 0) return selectedPool
+    return pools.find(p => p.id !== 0 && p.tvl > 0) ?? selectedPool
+  }, [pools, selectedPool])
 
   const cacheRef = useRef<Map<string, Candle[]>>(new Map())
   const abortRef = useRef<AbortController | null>(null)
@@ -837,6 +843,11 @@ export default function TokenModal({ token, chain, onClose }: Props) {
     setCandles([])
 
     abortRef.current?.abort()
+    if (chartView === 'depth') {
+      setChartLoading(false)
+      return
+    }
+
     const ctrl = new AbortController()
     abortRef.current = ctrl
 
@@ -1090,6 +1101,23 @@ export default function TokenModal({ token, chain, onClose }: Props) {
             {/* Market Cap */}
             {token.marketCapUsd && <StatRow label="Market Cap" value={formatVolume(token.marketCapUsd)} />}
 
+            {token.burnedSupply != null && token.burnedSupply > 0 && (
+              <div className="flex items-center justify-between py-1.5 border-b border-white/[0.04]">
+                <span className="text-[11px] text-gray-500">Burned Supply</span>
+                <span className="flex items-center gap-1.5 text-right">
+                  <span className="text-[11px] text-gray-200 font-medium tabular-nums">
+                    {Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(token.burnedSupply)}{' '}
+                    <span className="text-gray-500">{token.symbol}</span>
+                  </span>
+                  {token.burnedSupplyPct != null && token.burnedSupplyPct > 0 && (
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-orange-500/15 text-orange-300 font-semibold shrink-0">
+                      {token.burnedSupplyPct.toFixed(token.burnedSupplyPct >= 10 ? 0 : 1)}%
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
+
             {/* Circulating Supply */}
             {token.supply != null && token.supply > 0 && (
               <div className="flex items-center justify-between py-1.5 border-b border-white/[0.04]">
@@ -1099,18 +1127,20 @@ export default function TokenModal({ token, chain, onClose }: Props) {
                     {Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(token.supply)}{' '}
                     <span className="text-gray-500">{token.symbol}</span>
                   </span>
-                  <span className="text-[9px] px-1 py-0.5 rounded bg-green-500/15 text-green-400 font-semibold shrink-0">
-                    100%
-                  </span>
+                  {token.totalSupply != null && token.totalSupply > 0 && (
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-green-500/15 text-green-400 font-semibold shrink-0">
+                      {(token.supply / token.totalSupply * 100).toFixed(0)}%
+                    </span>
+                  )}
                 </span>
               </div>
             )}
 
             {/* Total Supply */}
-            {token.supply != null && token.supply > 0 && (
+            {token.totalSupply != null && token.totalSupply > 0 && (
               <StatRow
                 label="Total Supply"
-                value={`${Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(token.supply)} ${token.symbol}`}
+                value={`${Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(token.totalSupply)} ${token.symbol}`}
               />
             )}
 
@@ -1245,7 +1275,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
                 </button>
               ))}
               {hasLP && (
-                <button onClick={() => setChartView('depth')}
+                <button onClick={() => { setChartSource('lp'); if (depthPool) setSelectedPool(depthPool); setChartView('depth') }}
                   title="Liquidity Depth — shows where LP positions are concentrated across price levels"
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
                     chartView === 'depth' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
@@ -1297,6 +1327,18 @@ export default function TokenModal({ token, chain, onClose }: Props) {
               ) : null
             )}
 
+            {chartView === 'depth' && pools.length > 1 && (
+              <div className="flex items-center bg-white/[0.05] rounded-lg p-0.5 gap-0.5">
+                {(['pool', 'combined'] as DepthMode[]).map(mode => (
+                  <button key={mode} onClick={() => setDepthMode(mode)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                      depthMode === mode ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
+                    }`}>
+                    {mode === 'pool' ? 'Pool' : 'Combined'}
+                  </button>
+                ))}
+              </div>
+            )}
 
           </div>
 
@@ -1316,7 +1358,22 @@ export default function TokenModal({ token, chain, onClose }: Props) {
 
           {/* Chart body */}
           <div className="flex-1 relative" style={{ minHeight: 300 }}>
-            {chartLoading ? (
+            {chartView === 'depth' && (depthMode === 'combined' || depthPool) ? (
+              <div className="absolute inset-0 p-3">
+                <ErrorBoundary name="LiquidityDepth">
+                  <LiquidityDepth
+                    poolId={depthPool?.id ?? 0}
+                    chain={chain.id}
+                    reversed={depthPool?.reversed ?? false}
+                    currentUsdPrice={token.usd_price}
+                    tokenSymbol={token.symbol}
+                    counterpartSymbol={depthMode === 'combined' ? 'ALL LPs' : depthPool?.counterpartSymbol ?? ''}
+                    mode={depthMode === 'combined' ? 'combined' : 'single'}
+                    pools={pools}
+                  />
+                </ErrorBoundary>
+              </div>
+            ) : chartLoading ? (
               <div className="w-full h-full flex items-center justify-center gap-1.5">
                 {[0,1,2].map(i => (
                   <div key={i} className="w-1.5 h-1.5 rounded-full bg-gray-700 animate-pulse"
@@ -1330,19 +1387,6 @@ export default function TokenModal({ token, chain, onClose }: Props) {
                     d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
                 </svg>
                 <span className="text-[13px]">No chart data</span>
-              </div>
-            ) : chartView === 'depth' && selectedPool ? (
-              <div className="absolute inset-0 p-3">
-                <ErrorBoundary name="LiquidityDepth">
-                  <LiquidityDepth
-                    poolId={selectedPool.id}
-                    chain={chain.id}
-                    reversed={selectedPool.reversed}
-                    currentUsdPrice={token.usd_price}
-                    tokenSymbol={token.symbol}
-                    counterpartSymbol={selectedPool.counterpartSymbol}
-                  />
-                </ErrorBoundary>
               </div>
             ) : chartView === 'candles' ? (
               <div className="absolute inset-0 p-2">
