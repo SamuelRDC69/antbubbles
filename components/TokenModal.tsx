@@ -1367,6 +1367,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
                     reversed={depthPool?.reversed ?? false}
                     currentUsdPrice={token.usd_price}
                     tokenSymbol={token.symbol}
+                    tokenId={token.id}
                     counterpartSymbol={depthMode === 'combined' ? 'ALL LPs' : depthPool?.counterpartSymbol ?? ''}
                     mode={depthMode === 'combined' ? 'combined' : 'single'}
                     pools={pools}

@@ -12,21 +12,26 @@ interface Position {
 interface DepthData {
   currentTick: number
   tickSpacing:  number
-  tokenA: { symbol: string } | null
-  tokenB: { symbol: string } | null
+  tokenA: { id: string; symbol: string; decimals: number } | null
+  tokenB: { id: string; symbol: string; decimals: number } | null
   positions: Position[]
 }
 
-function parsePoolToken(value: unknown): { symbol: string } | null {
+function parsePoolToken(value: unknown): { id: string; symbol: string; decimals: number } | null {
   if (!value || typeof value !== 'object') return null
+  const id = (value as { id?: unknown }).id
   const symbol = (value as { symbol?: unknown }).symbol
-  return typeof symbol === 'string' ? { symbol } : null
+  const decimals = Number((value as { decimals?: unknown }).decimals)
+  return typeof symbol === 'string'
+    ? { id: typeof id === 'string' ? id : '', symbol, decimals: Number.isFinite(decimals) ? decimals : 0 }
+    : null
 }
 
 interface Bucket {
   tickMid:   number
   priceMid:  number
   liquidity: number
+  rawLiquidity?: number
 }
 
 interface DepthPool {
@@ -42,6 +47,7 @@ interface Props {
   reversed:        boolean
   currentUsdPrice: number
   tokenSymbol:     string
+  tokenId:         string
   counterpartSymbol: string
   mode?:           'single' | 'combined'
   pools?:          DepthPool[]
@@ -55,12 +61,22 @@ function tickToRelPrice(tick: number, currentTick: number, reversed: boolean): n
   return reversed ? 1 / raw : raw
 }
 
-function tokenUsdInTickRange(
+function tokenAmountA(liquidity: number, sqrtLower: number, sqrtUpper: number): number {
+  return liquidity * (sqrtUpper - sqrtLower) / (sqrtUpper * sqrtLower)
+}
+
+function tokenAmountB(liquidity: number, sqrtLower: number, sqrtUpper: number): number {
+  return liquidity * (sqrtUpper - sqrtLower)
+}
+
+function tokenLiquidityUsdInTickRange(
   liquidity: number,
   tickLower: number,
   tickUpper: number,
-  priceMidUsd: number,
+  selectedPriceMidUsd: number,
   selectedTokenIsB: boolean,
+  tokenADecimals: number,
+  tokenBDecimals: number,
 ): number {
   if (!Number.isFinite(liquidity) || liquidity <= 0 || tickUpper <= tickLower) return 0
 
@@ -70,23 +86,35 @@ function tokenUsdInTickRange(
     return 0
   }
 
-  // Concentrated-liquidity token amounts over [sqrtLower, sqrtUpper].
-  // tokenA amount = L * (sqrtU - sqrtL) / (sqrtU * sqrtL)
-  // tokenB amount = L * (sqrtU - sqrtL)
-  const amountSelected = selectedTokenIsB
-    ? liquidity * (sqrtUpper - sqrtLower)
-    : liquidity * (sqrtUpper - sqrtLower) / (sqrtUpper * sqrtLower)
+  const amountA = tokenAmountA(liquidity, sqrtLower, sqrtUpper)
+  const amountB = tokenAmountB(liquidity, sqrtLower, sqrtUpper)
 
-  const usd = amountSelected * priceMidUsd
-  return Number.isFinite(usd) && usd > 0 ? usd : 0
+  const rawPriceBPerA = Math.pow((sqrtLower + sqrtUpper) / 2, 2)
+  const decimalAdjustedPriceBPerA = rawPriceBPerA * Math.pow(10, tokenADecimals - tokenBDecimals)
+  if (!Number.isFinite(decimalAdjustedPriceBPerA) || decimalAdjustedPriceBPerA <= 0) return 0
+
+  const decimalAmountA = amountA / Math.pow(10, tokenADecimals)
+  const decimalAmountB = amountB / Math.pow(10, tokenBDecimals)
+  const usdA = selectedTokenIsB ? decimalAdjustedPriceBPerA * selectedPriceMidUsd : selectedPriceMidUsd
+  const usdB = selectedTokenIsB ? selectedPriceMidUsd : selectedPriceMidUsd / decimalAdjustedPriceBPerA
+  const value = decimalAmountA * usdA + decimalAmountB * usdB
+  return Number.isFinite(value) && value > 0 ? value : 0
 }
 
 function buildBuckets(
   data: DepthData,
   currentUsdPrice: number,
   reversed: boolean,
+  selectedTokenId: string,
 ): Bucket[] {
   const { currentTick, positions } = data
+  const tokenADecimals = data.tokenA?.decimals ?? 0
+  const tokenBDecimals = data.tokenB?.decimals ?? 0
+  const selectedTokenIsB = data.tokenB?.id === selectedTokenId
+    ? true
+    : data.tokenA?.id === selectedTokenId
+      ? false
+      : reversed
   const low  = currentTick - TICK_RANGE
   const high = currentTick + TICK_RANGE
   const step = (high - low) / N_BUCKETS
@@ -97,21 +125,24 @@ function buildBuckets(
     const btM = (bt0 + bt1) / 2
 
     let liq = 0
+    const priceMid = currentUsdPrice * tickToRelPrice(btM, currentTick, selectedTokenIsB)
     for (const p of positions) {
       if (p.tickLower < bt1 && p.tickUpper > bt0) {
-        liq += tokenUsdInTickRange(
+        liq += tokenLiquidityUsdInTickRange(
           parseFloat(p.liquidity),
           Math.max(p.tickLower, bt0),
           Math.min(p.tickUpper, bt1),
-          currentUsdPrice * tickToRelPrice(btM, currentTick, reversed),
-          reversed,
+          priceMid,
+          selectedTokenIsB,
+          tokenADecimals,
+          tokenBDecimals,
         )
       }
     }
 
     return {
       tickMid:  btM,
-      priceMid: currentUsdPrice * tickToRelPrice(btM, currentTick, reversed),
+      priceMid,
       liquidity: liq,
     }
   })
@@ -120,6 +151,7 @@ function buildBuckets(
 function buildCombinedBuckets(
   depths: Array<{ pool: DepthPool; data: DepthData }>,
   currentUsdPrice: number,
+  selectedTokenId: string,
 ): Bucket[] {
   const lowPrice  = currentUsdPrice * Math.pow(1.0001, -TICK_RANGE)
   const highPrice = currentUsdPrice * Math.pow(1.0001, TICK_RANGE)
@@ -132,7 +164,7 @@ function buildCombinedBuckets(
   }))
 
   for (const { pool, data } of depths) {
-    const poolBuckets = buildBuckets(data, currentUsdPrice, pool.reversed)
+    const poolBuckets = buildBuckets(data, currentUsdPrice, pool.reversed, selectedTokenId)
     const rawTotal = poolBuckets.reduce((sum, bucket) => sum + bucket.liquidity, 0)
     if (rawTotal <= 0 || pool.tvl <= 0) continue
 
@@ -185,8 +217,8 @@ function draw(
   ctx.textAlign = 'left'
   ctx.fillText(
     mode === 'combined'
-      ? `${tokenSymbol} combined USD liquidity depth · ${poolCount} pools`
-      : `${tokenSymbol} / ${counterpartSymbol}  liquidity depth`,
+      ? `${tokenSymbol} combined USD liquidity distribution · ${poolCount} pools`
+      : `${tokenSymbol} / ${counterpartSymbol} liquidity distribution`,
     PAD_L,
     16,
   )
@@ -216,7 +248,7 @@ function draw(
   // ── Bars ───────────────────────────────────────────────────────────────────
   // Index 0 = lowest price → draw at bottom; N-1 = highest → draw at top
   buckets.forEach((b, i) => {
-    if (b.liquidity < 1) return
+    if (b.liquidity <= 0) return
     const y        = PAD_T + (N_BUCKETS - 1 - i) * barH
     const barWidth = Math.max(1, (b.liquidity / maxLiq) * chartW)
     const isAbove  = i > currentIdx
@@ -264,12 +296,13 @@ function draw(
   }
 
   // ── Active-range annotation ───────────────────────────────────────────────
-  // Count liquidity in ±10% buckets around current as fraction of total
-  const window10 = Math.round(N_BUCKETS * 0.10)
-  const lo = Math.max(0, currentIdx - window10)
-  const hi = Math.min(N_BUCKETS - 1, currentIdx + window10)
-  const rangeSum = buckets.slice(lo, hi + 1).reduce((s, b) => s + b.liquidity, 0)
-  const totalSum = buckets.reduce((s, b) => s + b.liquidity, 0)
+  // Count raw price-slice liquidity in the actual +/-10% price window.
+  const priceLo = currentUsdPrice * 0.9
+  const priceHi = currentUsdPrice * 1.1
+  const rangeSum = buckets.reduce((s, b) => (
+    b.priceMid >= priceLo && b.priceMid <= priceHi ? s + (b.rawLiquidity ?? b.liquidity) : s
+  ), 0)
+  const totalSum = buckets.reduce((s, b) => s + (b.rawLiquidity ?? b.liquidity), 0)
   if (totalSum > 0) {
     const pct = Math.round(rangeSum / totalSum * 100)
     ctx.font      = '9px system-ui, sans-serif'
@@ -282,7 +315,7 @@ function draw(
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function LiquidityDepth({
-  poolId, chain, reversed, currentUsdPrice, tokenSymbol, counterpartSymbol,
+  poolId, chain, reversed, currentUsdPrice, tokenSymbol, tokenId, counterpartSymbol,
   mode = 'single', pools = [],
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -344,7 +377,7 @@ export default function LiquidityDepth({
           )
           .map(result => ({ pool: result.value.pool, data: result.value.data! }))
 
-        const buckets = buildCombinedBuckets(depths, currentUsdPrice)
+        const buckets = buildCombinedBuckets(depths, currentUsdPrice, tokenId)
         if (buckets.some(bucket => bucket.liquidity > 0)) {
           setData({ buckets, poolCount: depths.length })
           setLoading(false)
@@ -358,7 +391,7 @@ export default function LiquidityDepth({
       const d = await fetchDepth(poolId)
       if (d) {
         setData({
-          buckets: buildBuckets(d, currentUsdPrice, reversed),
+          buckets: buildBuckets(d, currentUsdPrice, reversed, tokenId),
           poolCount: 1,
         })
         setLoading(false)
@@ -376,7 +409,7 @@ export default function LiquidityDepth({
     })
 
     return () => ctrl.abort()
-  }, [poolId, chain, reversed, currentUsdPrice, mode, pools])
+  }, [poolId, chain, reversed, currentUsdPrice, tokenId, mode, pools])
 
   // Redraw whenever data, size, or price changes
   useEffect(() => {
