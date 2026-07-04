@@ -55,6 +55,32 @@ function tickToRelPrice(tick: number, currentTick: number, reversed: boolean): n
   return reversed ? 1 / raw : raw
 }
 
+function tokenUsdInTickRange(
+  liquidity: number,
+  tickLower: number,
+  tickUpper: number,
+  priceMidUsd: number,
+  selectedTokenIsB: boolean,
+): number {
+  if (!Number.isFinite(liquidity) || liquidity <= 0 || tickUpper <= tickLower) return 0
+
+  const sqrtLower = Math.pow(1.0001, tickLower / 2)
+  const sqrtUpper = Math.pow(1.0001, tickUpper / 2)
+  if (!Number.isFinite(sqrtLower) || !Number.isFinite(sqrtUpper) || sqrtLower <= 0 || sqrtUpper <= 0) {
+    return 0
+  }
+
+  // Concentrated-liquidity token amounts over [sqrtLower, sqrtUpper].
+  // tokenA amount = L * (sqrtU - sqrtL) / (sqrtU * sqrtL)
+  // tokenB amount = L * (sqrtU - sqrtL)
+  const amountSelected = selectedTokenIsB
+    ? liquidity * (sqrtUpper - sqrtLower)
+    : liquidity * (sqrtUpper - sqrtLower) / (sqrtUpper * sqrtLower)
+
+  const usd = amountSelected * priceMidUsd
+  return Number.isFinite(usd) && usd > 0 ? usd : 0
+}
+
 function buildBuckets(
   data: DepthData,
   currentUsdPrice: number,
@@ -73,11 +99,13 @@ function buildBuckets(
     let liq = 0
     for (const p of positions) {
       if (p.tickLower < bt1 && p.tickUpper > bt0) {
-        const span    = p.tickUpper - p.tickLower
-        const overlap = Math.min(p.tickUpper, bt1) - Math.max(p.tickLower, bt0)
-        const weight  = span > 0 ? overlap / span : 0
-        // parseFloat handles uint128 strings; precision loss is fine for relative bars
-        liq += parseFloat(p.liquidity) * weight
+        liq += tokenUsdInTickRange(
+          parseFloat(p.liquidity),
+          Math.max(p.tickLower, bt0),
+          Math.min(p.tickUpper, bt1),
+          currentUsdPrice * tickToRelPrice(btM, currentTick, reversed),
+          reversed,
+        )
       }
     }
 
