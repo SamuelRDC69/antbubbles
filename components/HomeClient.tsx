@@ -35,6 +35,7 @@ export default function HomeClient({ initialTokens }: Props) {
   const [ad,             setAd]             = useState<MarketingAd | null>(null)
   const [advertiseOpen,  setAdvertiseOpen]  = useState(false)
   const [adReady,        setAdReady]        = useState(false)
+  const [alcorTradingAllowed, setAlcorTradingAllowed] = useState(false)
   // The chart reports ready after its first complete frame and logo load.
   const [chartReady, setChartReady] = useState(false)
 
@@ -62,6 +63,22 @@ export default function HomeClient({ initialTokens }: Props) {
     refreshAd()
     const interval = setInterval(refreshAd, 30_000)
     return () => { active = false; clearInterval(interval) }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/alcor-access', {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8_000),
+    })
+      .then(response => response.ok ? response.json() : null)
+      .then((access: unknown) => {
+        if (active && access && typeof access === 'object' && 'allowed' in access) {
+          setAlcorTradingAllowed(access.allowed === true)
+        }
+      })
+      .catch(() => {})
+    return () => { active = false }
   }, [])
 
   const handleChainChange = useCallback((c: ChainConfig) => {
@@ -135,6 +152,7 @@ export default function HomeClient({ initialTokens }: Props) {
         <TokenModal
           token={selectedToken}
           chain={chain}
+          allowAlcorTrade={alcorTradingAllowed}
           onClose={() => setSelectedToken(null)}
         />
       )}

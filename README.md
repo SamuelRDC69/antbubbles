@@ -34,6 +34,10 @@ Set the output as `AD_ADMIN_TOKEN` in the production environment and enter the s
 
 To enable the advert GIF picker, set `NEXT_PUBLIC_GIPHY_API_KEY`. The advert editor uses GIPHY's official web SDK; without a key, advertisers can still paste a GIF, image, or IPFS URL directly.
 
+## Alcor referral
+
+Register the receiving account with Alcor's `regmarket` action, then set `NEXT_PUBLIC_ALCOR_MARKET` to that account name. Token trade links open Alcor's current swap frontend with the active chain's native token as the input and the selected token as the output.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

@@ -4,6 +4,7 @@ import { TokenBubbleData, TokenPool, ChainConfig } from '@/lib/types'
 import { formatPrice, formatPriceParts, formatTokenPrice, formatChange, formatVolume, ringColor } from '@/lib/bubbleUtils'
 import { getChart, setChart } from '@/lib/chartCache'
 import { getLogoUrl } from '@/lib/alcor'
+import { buildAlcorSwapUrl } from '@/lib/alcorLinks'
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -28,6 +29,7 @@ const LiquidityDepth = dynamic(() => import('./LiquidityDepth'), {
 interface Props {
   token:   TokenBubbleData
   chain:   ChainConfig
+  allowAlcorTrade: boolean
   onClose: () => void
 }
 
@@ -686,7 +688,7 @@ function PoolSelector({
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
-export default function TokenModal({ token, chain, onClose }: Props) {
+export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: Props) {
   const [logoError,    setLogoError]    = useState(false)
   const [contractCopied, setContractCopied] = useState(false)
   const [chartRange,   setChartRange]   = useState<ChartRange>('1D')
@@ -1007,11 +1009,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
     : token.change24 >= 0
 
   const ringCol = ringColor(token.change24)
-  const alcorUrl = token.ticker_id
-    ? `https://${chain.id}.alcor.exchange/trade/${token.ticker_id}`
-    : selectedPool
-    ? `https://${chain.id}.alcor.exchange/swap?pool_id=${selectedPool.id}`
-    : null
+  const alcorUrl = buildAlcorSwapUrl(chain, token)
   const explorerUrl = `${chain.explorerBase}/account/${token.contract}`
 
   // Spot bid/ask values are quoted in the chain-native token.
@@ -1318,10 +1316,10 @@ export default function TokenModal({ token, chain, onClose }: Props) {
 
           {/* Actions */}
           <div className="p-4 flex flex-col gap-2 border-t border-white/[0.06]">
-            {alcorUrl && (
+            {allowAlcorTrade && alcorUrl && (
               <a href={alcorUrl} target="_blank" rel="noopener noreferrer"
                 className="w-full text-center py-2 rounded-xl bg-[#f89422] hover:bg-[#e07d10] text-white font-semibold text-[13px] transition-colors">
-                {token.ticker_id ? 'Trade on Alcor ↗' : 'View Pool ↗'}
+                Swap on Alcor ↗
               </a>
             )}
             <a href={explorerUrl} target="_blank" rel="noopener noreferrer"
@@ -1495,7 +1493,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
               <a href="https://alcor.exchange" target="_blank" rel="noopener noreferrer"
                 className="text-[#f89422] hover:underline">Alcor Exchange</a>
             </span>
-            {alcorUrl && (
+            {allowAlcorTrade && alcorUrl && (
               <a href={alcorUrl} target="_blank" rel="noopener noreferrer"
                 className="text-[10px] text-[#f89422] hover:underline font-medium">
                 Open on Alcor ↗
