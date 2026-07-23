@@ -1,8 +1,15 @@
 'use client'
 
 import { FormEvent, useState } from 'react'
-import { AD_FONTS, AD_PERIODS, AdSubmission } from '@/lib/ads'
+import { AD_FONTS, AD_PERIODS, AdOverlayPosition, AdSubmission } from '@/lib/ads'
 import LiquidLoader from '@/components/LiquidLoader'
+
+function overlayStyle(position: AdOverlayPosition = 'center') {
+  const [vertical, horizontal = 'center'] = position.split('-')
+  const left = horizontal === 'left' ? '18%' : horizontal === 'right' ? '82%' : '50%'
+  const top = vertical === 'top' ? '18%' : vertical === 'bottom' ? '68%' : '43%'
+  return { left, top, transform: 'translate(-50%, -50%)' }
+}
 
 export default function AdReviewPage() {
   const [token, setToken] = useState('')
@@ -79,17 +86,24 @@ export default function AdReviewPage() {
         <div className="mt-6 space-y-3">
           {submissions.map(submission => {
             const period = AD_PERIODS.find(option => option.hours === submission.hours)
+            const backgroundUrl = submission.imageMode === 'background' ? submission.imageUrl : ''
+            const logoUrl = submission.logoUrl || (submission.imageMode === 'logo' ? submission.imageUrl : '')
             return (
               <article key={submission.id} className="rounded-xl border border-white/10 bg-[#0a0f14] p-4">
                 <div className="flex items-start gap-3">
                   <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-[#291900] ring-1 ring-[#ffd700]">
-                    {submission.imageUrl && (
+                    {backgroundUrl && (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={submission.imageUrl} alt=""
-                        className={`absolute inset-0 h-full w-full ${submission.imageMode === 'background' ? 'object-cover' : 'object-contain p-4'}`} />
+                      <img src={backgroundUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
                     )}
-                    <span className="absolute inset-2 flex items-center justify-center text-center text-[11px] font-bold leading-tight [text-shadow:0_1px_3px_#000]"
+                    {logoUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={logoUrl} alt="" className="absolute h-7 w-7 rounded-full object-contain p-0.5"
+                        style={overlayStyle(submission.logoPosition ?? 'top-center')} />
+                    )}
+                    <span className="absolute w-[68%] text-center text-[11px] font-bold leading-tight [text-shadow:0_1px_3px_#000]"
                       style={{
+                        ...overlayStyle(submission.textPosition),
                         color: submission.textColor ?? '#ffe066',
                         fontFamily: AD_FONTS[submission.font ?? 'sans'].canvas,
                       }}>

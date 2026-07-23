@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "gif-picker-react/style.css";
 
 :root {
   --font-inter: 'Inter', system-ui, sans-serif;
@@ -15,6 +16,18 @@ html, body {
   background: #000000;
   color: #ffffff;
   font-family: var(--font-inter);
+}
+
+.ad-gif-picker .GifPickerReact {
+  --gpr-highlight-color: #ffd700;
+  --gpr-bg-color: #0a0f14;
+  --gpr-text-color: #9ca3af;
+  --gpr-search-input-bg-color: #111820;
+  --gpr-search-input-bg-color-active: #111820;
+  --gpr-picker-border-color: rgba(255,255,255,0.1);
+  --gpr-hover-bg-color: rgba(255,255,255,0.08);
+  --gpr-focus-bg-color: rgba(255,215,0,0.12);
+  --gpr-category-font-color: #f8fafc;
 }
 
 /* Smooth scrollbar */

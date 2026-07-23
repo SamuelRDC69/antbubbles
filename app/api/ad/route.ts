@@ -6,10 +6,12 @@ import { getRedis } from '@/lib/redis'
 import {
   AD_PERIODS,
   AD_FONTS,
+  AD_OVERLAY_POSITIONS,
   AD_RECIPIENT,
   AD_REDIS_KEYS,
   AdFont,
   AdImageMode,
+  AdOverlayPosition,
   AdPricingState,
   AdReservation,
   AdSubmission,
@@ -36,6 +38,10 @@ function jsonError(error: string, status: number) {
   return NextResponse.json({ error }, { status })
 }
 
+function isOverlayPosition(value: unknown): value is AdOverlayPosition {
+  return AD_OVERLAY_POSITIONS.includes(value as AdOverlayPosition)
+}
+
 async function bookedSlots(redis: Redis, from: number, to: number): Promise<AdSubmission[]> {
   // ponytail: low-volume global scan; index slot ends separately if bookings become busy.
   const ids = await redis.zrange<string[]>(
@@ -58,8 +64,11 @@ function marketingAd(submission: AdSubmission): MarketingAd {
     text: submission.text,
     imageUrl: submission.imageUrl,
     imageMode: submission.imageMode,
+    logoUrl: submission.logoUrl,
     font: submission.font,
     textColor: submission.textColor,
+    textPosition: submission.textPosition,
+    logoPosition: submission.logoPosition,
     linkUrl: submission.linkUrl,
     startAt: submission.startAt,
     expiresAt: submission.endAt,
@@ -122,12 +131,15 @@ async function submitForReview(req: NextRequest) {
   const linkUrl = safeHttpUrl(body.linkUrl)
   const imageMode = String(body.imageMode ?? 'none') as AdImageMode
   const imageUrl = imageMode === 'background'
-    ? ipfsImageUrl(body.imageUrl)
+    ? ipfsImageUrl(body.imageUrl) ?? safeHttpUrl(body.imageUrl)
     : imageMode === 'logo'
       ? safeHttpUrl(body.imageUrl, false, true)
       : imageMode === 'none' ? '' : null
+  const logoUrl = safeHttpUrl(body.logoUrl, true, true)
   const font = String(body.font ?? '') as AdFont
   const textColor = safeAdColor(body.textColor)
+  const textPosition = body.textPosition ?? 'center'
+  const logoPosition = body.logoPosition ?? 'top-center'
   const buyer = String(body.buyer ?? '')
   const symbol = String(body.symbol ?? '') as PaymentSymbol
   const period = AD_PERIODS.find(option => option.hours === Number(body.hours))
@@ -136,7 +148,8 @@ async function submitForReview(req: NextRequest) {
   const endAt = startAt + (period?.hours ?? 0) * HOUR_MS
   const hourly = Number.isInteger(timezoneOffset) && (startAt - timezoneOffset * 60_000) % HOUR_MS === 0
 
-  if (!text || !linkUrl || imageUrl === null || !Object.hasOwn(AD_FONTS, font) || !textColor ||
+  if (!text || !linkUrl || imageUrl === null || logoUrl === null || !isOverlayPosition(textPosition) ||
+      !isOverlayPosition(logoPosition) || !Object.hasOwn(AD_FONTS, font) || !textColor ||
       !ACCOUNT_RE.test(buyer) || !period || !PAYMENT_TOKENS[symbol] || !hourly ||
       startAt <= Date.now() || startAt > Date.now() + 90 * 24 * HOUR_MS) {
     return jsonError('Invalid ad details', 400)
@@ -148,8 +161,11 @@ async function submitForReview(req: NextRequest) {
     text,
     imageUrl,
     imageMode,
+    logoUrl,
     font,
     textColor,
+    textPosition,
+    logoPosition,
     linkUrl,
     hours: period.hours,
     buyer,
@@ -190,8 +206,11 @@ async function preparePayment(req: NextRequest) {
       text: submission.text,
       imageUrl: submission.imageUrl,
       imageMode: submission.imageMode,
+      logoUrl: submission.logoUrl,
       font: submission.font,
       textColor: submission.textColor,
+      textPosition: submission.textPosition,
+      logoPosition: submission.logoPosition,
       linkUrl: submission.linkUrl,
       hours: submission.hours,
       buyer: submission.buyer,

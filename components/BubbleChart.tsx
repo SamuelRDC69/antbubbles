@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { forceSimulation } from 'd3-force'
 import type { Simulation } from 'd3-force'
 import { TokenBubbleData, DisplayMode } from '@/lib/types'
-import { AD_FONTS, AdFont, AdImageMode, MarketingAd } from '@/lib/ads'
+import { AD_FONTS, AdFont, AdImageMode, AdOverlayPosition, MarketingAd } from '@/lib/ads'
 import {
   computeRadii,
   bubbleFillColorForMode,
@@ -45,8 +45,11 @@ interface SimNode extends TokenBubbleData {
   adLinkUrl?:    string
   adText?:       string
   adImageMode?:  AdImageMode
+  adLogoUrl?:    string
   adFont?:       AdFont
   adTextColor?:  string
+  adTextPosition?: AdOverlayPosition
+  adLogoPosition?: AdOverlayPosition
 }
 
 interface TooltipState {
@@ -107,7 +110,8 @@ const MARKETING_ID = '__marketing__'
 function paintMarketingBubble(
   ctx: CanvasRenderingContext2D,
   node: SimNode,
-  img: HTMLImageElement | null | undefined,
+  background: HTMLImageElement | null | undefined,
+  logo: HTMLImageElement | null | undefined,
 ) {
   const r = node.radius
   const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, r)
@@ -119,16 +123,16 @@ function paintMarketingBubble(
   ctx.fillStyle = gradient
   ctx.fill()
 
-  const isBackground = node.adImageMode === 'background' && !!img
+  const isBackground = node.adImageMode === 'background' && !!background
   if (isBackground) {
-    const scale = Math.max(2 * r / img.naturalWidth, 2 * r / img.naturalHeight)
-    const width = img.naturalWidth * scale
-    const height = img.naturalHeight * scale
+    const scale = Math.max(2 * r / background.naturalWidth, 2 * r / background.naturalHeight)
+    const width = background.naturalWidth * scale
+    const height = background.naturalHeight * scale
     ctx.save()
     ctx.beginPath()
     ctx.arc(0, 0, r, 0, Math.PI * 2)
     ctx.clip()
-    ctx.drawImage(img, -width / 2, -height / 2, width, height)
+    ctx.drawImage(background, -width / 2, -height / 2, width, height)
     ctx.fillStyle = 'rgba(0,0,0,0.22)'
     ctx.fillRect(-r, -r, r * 2, r * 2)
     ctx.restore()
@@ -136,29 +140,45 @@ function paintMarketingBubble(
 
   const text = node.adText ?? ''
   const fontSize = Math.max(7, Math.round(r * 0.18))
-  const logoSize = img && !isBackground ? Math.round(r * 0.55) : 0
   const lines = text.length > 14 ? [text.slice(0, 13), `${text.slice(13, 25)}…`] : [text]
-  const contentHeight = logoSize + lines.length * fontSize + (logoSize ? 4 : 0)
-  let y = -contentHeight / 2
-
-  if (img && logoSize) {
-    ctx.drawImage(img, -logoSize / 2, y, logoSize, logoSize)
-    y += logoSize + 4
+  const legacyLogo = node.adImageMode === 'logo' ? background : null
+  const logoImage = logo ?? legacyLogo
+  if (logoImage) {
+    const logoSize = Math.round(r * 0.42)
+    const { x, y } = overlayPoint(node.adLogoPosition ?? 'top-center', r)
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(x, y, logoSize / 2, 0, Math.PI * 2)
+    ctx.clip()
+    ctx.drawImage(logoImage, x - logoSize / 2, y - logoSize / 2, logoSize, logoSize)
+    ctx.restore()
   }
+
+  const textPoint = overlayPoint(node.adTextPosition ?? 'center', r)
   ctx.fillStyle = node.adTextColor ?? '#ffe066'
   ctx.font = `700 ${fontSize}px ${AD_FONTS[node.adFont ?? 'sans'].canvas}`
   ctx.textAlign = 'center'
-  ctx.textBaseline = 'top'
+  ctx.textBaseline = 'middle'
   ctx.shadowColor = 'rgba(0,0,0,0.9)'
   ctx.shadowBlur = isBackground ? 4 : 0
-  for (const line of lines) {
-    ctx.fillText(line, 0, y)
-    y += fontSize
-  }
+  lines.forEach((line, index) => ctx.fillText(
+    line,
+    textPoint.x,
+    textPoint.y + (index - (lines.length - 1) / 2) * fontSize,
+  ))
   ctx.shadowBlur = 0
   ctx.fillStyle = '#ffd700'
   ctx.font = `600 ${Math.max(6, Math.round(r * 0.11))}px Inter, system-ui, sans-serif`
   ctx.fillText(node._isPlaceholder ? 'ADVERTISE' : 'SPONSORED', 0, r * 0.62)
+}
+
+function overlayPoint(position: AdOverlayPosition, radius: number) {
+  const [vertical, horizontal = 'center'] = position.split('-')
+  const edge = radius * 0.42
+  return {
+    x: horizontal === 'left' ? -edge : horizontal === 'right' ? edge : 0,
+    y: vertical === 'top' ? -edge : vertical === 'bottom' ? edge : 0,
+  }
 }
 
 // Paint bubble content into a ctx whose origin is already at the bubble centre.
@@ -172,11 +192,12 @@ function paintBubbleContent(
   ctx:         CanvasRenderingContext2D,
   node:        SimNode,
   img:         HTMLImageElement | null | undefined,
+  adLogo:      HTMLImageElement | null | undefined,
   displayMode: DisplayMode,
   isMobile:    boolean,
 ) {
   if (node._isMarketing) {
-    paintMarketingBubble(ctx, node, img)
+    paintMarketingBubble(ctx, node, img, adLogo)
     return
   }
 
@@ -293,6 +314,7 @@ function paintBubbleContent(
 function getOrCreateBubbleCanvas(
   node:        SimNode,
   img:         HTMLImageElement | null | undefined,
+  adLogo:      HTMLImageElement | null | undefined,
   displayMode: DisplayMode,
   dpr:         number,
   isMobile:    boolean,
@@ -300,7 +322,7 @@ function getOrCreateBubbleCanvas(
 ): HTMLCanvasElement {
   const fill  = node._isMarketing ? 'sponsored' : bubbleFillColorForMode(node, displayMode)
   const val   = node._isMarketing ? node.adText : formatMetricValue(node, displayMode)
-  const key   = `${node.radius}_${fill}_${val}_${node._isPlaceholder ? 1 : 0}_${img ? 1 : 0}_${node.adImageMode}_${node.adFont}_${node.adTextColor}_${dpr}_${isMobile ? 'm' : 'd'}`
+  const key   = `${node.radius}_${fill}_${val}_${node._isPlaceholder ? 1 : 0}_${img ? 1 : 0}_${adLogo ? 1 : 0}_${node.adImageMode}_${node.adFont}_${node.adTextColor}_${node.adTextPosition}_${node.adLogoPosition}_${dpr}_${isMobile ? 'm' : 'd'}`
 
   const entry = cache.get(node.id)
   if (entry && entry.key === key) return entry.canvas
@@ -315,7 +337,7 @@ function getOrCreateBubbleCanvas(
   c2.scale(dpr, dpr)
   c2.translate(r + 3, r + 3)     // integer centre — text always at integer physical pixels
 
-  paintBubbleContent(c2, node, img, displayMode, isMobile)
+  paintBubbleContent(c2, node, img, adLogo, displayMode, isMobile)
 
   cache.set(node.id, { key, canvas: oc })
   return oc
@@ -326,6 +348,7 @@ function drawBubble(
   ctx:            CanvasRenderingContext2D,
   node:           SimNode,
   img:            HTMLImageElement | null | undefined,
+  adLogo:         HTMLImageElement | null | undefined,
   isHovered:      boolean,
   isDragging:     boolean,
   isDimmed:       boolean,
@@ -343,7 +366,9 @@ function drawBubble(
   // Composite the pre-rendered bubble bitmap at the float simulation position.
   // drawImage uses bilinear interpolation so the whole image shifts smoothly —
   // no per-frame glyph rasterisation, no shimmering.
-  const bc   = getOrCreateBubbleCanvas(node, img, displayMode, dpr, isMobile, offscreenCache)
+  // Animated creatives need a fresh offscreen frame; only the sponsored bubble takes this path.
+  if (node._isMarketing && node.adImageMode === 'background') offscreenCache.delete(node.id)
+  const bc   = getOrCreateBubbleCanvas(node, img, adLogo, displayMode, dpr, isMobile, offscreenCache)
   const size = 2 * radius + 6
   ctx.drawImage(bc, x - radius - 3, y - radius - 3, size, size)
 
@@ -419,6 +444,7 @@ export default function BubbleChart({
     const sources = [
       ...tokens.map(token => ({ id: token.id, url: token.logoUrl })),
       ...(ad?.imageUrl ? [{ id: MARKETING_ID, url: ad.imageUrl }] : []),
+      ...(ad?.logoUrl ? [{ id: `${MARKETING_ID}:logo`, url: ad.logoUrl }] : []),
     ]
     Promise.all(sources.map(async ({ id, url }) => {
       const image = await loadImage(url)
@@ -428,7 +454,7 @@ export default function BubbleChart({
       if (active) setAssetsReady(true)
     })
     return () => { active = false }
-  }, [ad?.imageUrl, tokens])
+  }, [ad?.imageUrl, ad?.logoUrl, tokens])
 
   // ── Simulation init / update ───────────────────────────────────────────────
   useEffect(() => {
@@ -548,8 +574,11 @@ export default function BubbleChart({
       node.adText = text
       node.adLinkUrl = ad?.linkUrl
       node.adImageMode = ad?.imageMode
+      node.adLogoUrl = ad?.logoUrl
       node.adFont = ad?.font
       node.adTextColor = ad?.textColor
+      node.adTextPosition = ad?.textPosition
+      node.adLogoPosition = ad?.logoPosition
       node._isPlaceholder = !ad
       offscreenCacheRef.current.delete(MARKETING_ID)
       return
@@ -583,8 +612,11 @@ export default function BubbleChart({
       adText: text,
       adLinkUrl: ad?.linkUrl,
       adImageMode: ad?.imageMode,
+      adLogoUrl: ad?.logoUrl,
       adFont: ad?.font,
       adTextColor: ad?.textColor,
+      adTextPosition: ad?.textPosition,
+      adLogoPosition: ad?.logoPosition,
     })
     simRef.current?.nodes(nodesRef.current).alpha(0.8)
   }, [ad, dimensions, tokens, displayMode])
@@ -629,7 +661,7 @@ export default function BubbleChart({
         const isDragging = dragRef.current    === node
         const isMatch    = node._isMarketing || (q.length > 1 && node.symbol.toLowerCase().includes(q))
         const isDimmed   = !node._isMarketing && q.length > 1 && !isMatch
-        drawBubble(ctx, node, imagesRef.current.get(node.id), isHovered, isDragging, isDimmed, displayMode, cache, dpr, isMobile)
+        drawBubble(ctx, node, imagesRef.current.get(node.id), imagesRef.current.get(`${node.id}:logo`), isHovered, isDragging, isDimmed, displayMode, cache, dpr, isMobile)
       }
 
       // Signal skeleton can be hidden after first real frame with nodes

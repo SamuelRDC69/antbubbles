@@ -3,8 +3,11 @@ export interface MarketingAd {
   text: string
   imageUrl: string
   imageMode?: AdImageMode
+  logoUrl?: string
   font?: AdFont
   textColor?: string
+  textPosition?: AdOverlayPosition
+  logoPosition?: AdOverlayPosition
   linkUrl: string
   startAt?: number
   expiresAt: number
@@ -18,8 +21,11 @@ export interface AdReservation {
   text: string
   imageUrl: string
   imageMode?: AdImageMode
+  logoUrl?: string
   font?: AdFont
   textColor?: string
+  textPosition?: AdOverlayPosition
+  logoPosition?: AdOverlayPosition
   linkUrl: string
   hours: number
   buyer: string
@@ -39,8 +45,11 @@ export interface AdSubmission {
   text: string
   imageUrl: string
   imageMode?: AdImageMode
+  logoUrl?: string
   font?: AdFont
   textColor?: string
+  textPosition?: AdOverlayPosition
+  logoPosition?: AdOverlayPosition
   linkUrl: string
   hours: number
   buyer: string
@@ -95,6 +104,14 @@ export const AD_FONTS = {
 
 export type AdFont = keyof typeof AD_FONTS
 export type AdImageMode = 'none' | 'logo' | 'background'
+
+export const AD_OVERLAY_POSITIONS = [
+  'top-left', 'top-center', 'top-right',
+  'center-left', 'center', 'center-right',
+  'bottom-left', 'bottom-center', 'bottom-right',
+] as const
+
+export type AdOverlayPosition = typeof AD_OVERLAY_POSITIONS[number]
 
 const PRESSURE_HALF_LIFE_MS = 7 * 24 * 3600 * 1000
 const VIRTUAL_CAPACITY_HOURS = 7 * 24

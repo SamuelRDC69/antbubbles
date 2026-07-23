@@ -1,18 +1,23 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWallet } from '@/contexts/WalletContext'
+import { GifPicker, Theme } from 'gif-picker-react'
+import { ContentRating, Giphy } from 'gif-picker-react/providers/giphy'
 import {
   AD_PERIODS,
   AD_FONTS,
+  AD_OVERLAY_POSITIONS,
   PAYMENT_TOKENS,
   AdFont,
   AdImageMode,
+  AdOverlayPosition,
   AdReservation,
   AdSubmission,
   PaymentSymbol,
   bookingOverlaps,
   ipfsImageUrl,
+  safeHttpUrl,
   tokenQuantity,
 } from '@/lib/ads'
 import { TokenBubbleData } from '@/lib/types'
@@ -26,6 +31,7 @@ interface Props {
 
 const SUBMISSION_KEY = 'antbubbles-ad-submission'
 const PAYMENT_KEY = 'antbubbles-ad-payment'
+const GIPHY_API_KEY = process.env.NEXT_PUBLIC_GIPHY_API_KEY
 
 interface Pricing {
   asOf: number
@@ -50,6 +56,46 @@ function datetimeLocal(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:00`
 }
 
+const OVERLAY_LABELS: Record<AdOverlayPosition, string> = {
+  'top-left': 'Top left', 'top-center': 'Top centre', 'top-right': 'Top right',
+  'center-left': 'Centre left', 'center': 'Centre', 'center-right': 'Centre right',
+  'bottom-left': 'Bottom left', 'bottom-center': 'Bottom centre', 'bottom-right': 'Bottom right',
+}
+
+function OverlayPositionPicker({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: AdOverlayPosition
+  onChange: (position: AdOverlayPosition) => void
+}) {
+  return (
+    <fieldset>
+      <legend className="text-xs font-semibold text-gray-400">{label}</legend>
+      <div className="mt-1.5 grid grid-cols-3 gap-1 rounded-lg border border-white/10 bg-[#080c10] p-1.5">
+        {AD_OVERLAY_POSITIONS.map(position => (
+          <button key={position} type="button" onClick={() => onChange(position)}
+            aria-label={OVERLAY_LABELS[position]} aria-pressed={value === position}
+            className={`h-7 rounded text-[9px] font-bold transition-colors ${
+              value === position ? 'bg-[#ffd700] text-black' : 'text-gray-500 hover:bg-white/[0.08] hover:text-white'
+            }`}>
+            {position.replace('center', 'C').replace('top', 'T').replace('bottom', 'B').replace('-left', 'L').replace('-right', 'R')}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
+function overlayStyle(position: AdOverlayPosition): React.CSSProperties {
+  const [vertical, horizontal = 'center'] = position.split('-')
+  const left = horizontal === 'left' ? '18%' : horizontal === 'right' ? '82%' : '50%'
+  const top = vertical === 'top' ? '18%' : vertical === 'bottom' ? '68%' : '43%'
+  return { left, top, transform: 'translate(-50%, -50%)' }
+}
+
 export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props) {
   const { actor, login, transact } = useWallet()
   const [text, setText] = useState('')
@@ -59,6 +105,8 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
   const [ipfsUrl, setIpfsUrl] = useState('')
   const [font, setFont] = useState<AdFont>('sans')
   const [textColor, setTextColor] = useState('#ffe066')
+  const [textPosition, setTextPosition] = useState<AdOverlayPosition>('center')
+  const [logoPosition, setLogoPosition] = useState<AdOverlayPosition>('top-center')
   const [hours, setHours] = useState(24)
   const [startTime, setStartTime] = useState('')
   const [minimumStart, setMinimumStart] = useState('')
@@ -85,7 +133,11 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
   const [error, setError] = useState('')
 
   const selectedToken = tokens.find(token => token.id === tokenId)
-  const previewImage = imageMode === 'background' ? ipfsImageUrl(ipfsUrl) : imageMode === 'logo' ? selectedToken?.logoUrl : ''
+  const previewBackground = imageMode === 'background' ? ipfsImageUrl(ipfsUrl) ?? safeHttpUrl(ipfsUrl) : ''
+  const previewLogo = selectedToken?.logoUrl ?? ''
+  const giphyProvider = useMemo(() => GIPHY_API_KEY
+    ? Giphy(GIPHY_API_KEY, { rating: ContentRating.G })
+    : null, [])
   const bookingStartAt = startTime ? new Date(startTime).getTime() : 0
   const availabilityKey = `${bookingStartAt}:${hours}`
   const slotAvailable = slotAvailability?.key === availabilityKey ? slotAvailability.available : null
@@ -236,10 +288,13 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
         body: JSON.stringify({
           text,
           linkUrl,
-          imageUrl: imageMode === 'background' ? ipfsUrl : previewImage,
+          imageUrl: imageMode === 'background' ? ipfsUrl : '',
           imageMode,
+          logoUrl: previewLogo,
           font,
           textColor,
+          textPosition,
+          logoPosition,
           hours,
           startAt: bookingStartAt,
           timezoneOffset: new Date().getTimezoneOffset(),
@@ -353,35 +408,45 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                 className="mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-white outline-none focus:border-[#ffd700]/50" />
             </label>
             <label className="block text-xs font-semibold text-gray-400">
-              Bubble artwork
+              Creative background
               <select value={imageMode} onChange={event => setImageMode(event.target.value as AdImageMode)}
                 className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#111820] px-3 py-2 text-white">
-                <option value="none">Text only</option>
-                <option value="logo">Token logo</option>
-                <option value="background">IPFS image background</option>
+                <option value="none">No background</option>
+                <option value="background">GIF, meme, or image</option>
               </select>
             </label>
-            {imageMode === 'logo' && (
-              <label className="block text-xs font-semibold text-gray-400">
-                Token logo
-                <select value={tokenId} onChange={event => setTokenId(event.target.value)}
-                  className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#111820] px-3 py-2 text-white">
-                  <option value="">Choose a token</option>
-                  {tokens.map(token => <option key={token.id} value={token.id}>{token.symbol} · {token.contract}</option>)}
-                </select>
-              </label>
-            )}
             {imageMode === 'background' && (
-              <label className="block text-xs font-semibold text-gray-400">
-                IPFS image
-                <input value={ipfsUrl} onChange={event => setIpfsUrl(event.target.value)}
-                  placeholder="ipfs://bafy…/image.png"
-                  className="mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-white outline-none focus:border-[#ffd700]/50" />
-                <span className="mt-1.5 block font-normal leading-relaxed text-gray-500">
-                  Use a square 1024×1024 PNG or WebP with circular artwork. Keep important details inside the centre 70%; the image fills the bubble and its edges are cropped.
-                </span>
-              </label>
+              <div className="space-y-3">
+                <label className="block text-xs font-semibold text-gray-400">
+                  GIF, meme, or image URL
+                  <input value={ipfsUrl} onChange={event => setIpfsUrl(event.target.value)}
+                    placeholder="https://…/meme.gif or ipfs://bafy…"
+                    className="mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-white outline-none focus:border-[#ffd700]/50" />
+                  <span className="mt-1.5 block font-normal leading-relaxed text-gray-500">
+                    GIF, PNG, WebP, JPEG, and IPFS links work. Square artwork reads best; the bubble crops the edges.
+                  </span>
+                </label>
+                <section aria-labelledby="gif-picker-title" className="rounded-xl border border-white/10 bg-[#080c10] p-3">
+                  <h3 id="gif-picker-title" className="mb-2 text-xs font-semibold text-gray-300">Find a GIF</h3>
+                  {giphyProvider ? (
+                    <div className="ad-gif-picker">
+                      <GifPicker provider={giphyProvider} theme={Theme.DARK} width="100%" height={300} autoFocusSearch={false}
+                        onGifClick={gif => setIpfsUrl(gif.imageUrl)} />
+                    </div>
+                  ) : (
+                    <p className="text-[11px] leading-relaxed text-gray-500">GIF search needs <code className="text-gray-300">NEXT_PUBLIC_GIPHY_API_KEY</code>; you can still paste any GIF URL above.</p>
+                  )}
+                </section>
+              </div>
             )}
+            <label className="block text-xs font-semibold text-gray-400">
+              Token logo overlay
+              <select value={tokenId} onChange={event => setTokenId(event.target.value)}
+                className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#111820] px-3 py-2 text-white">
+                <option value="">No token logo</option>
+                {tokens.map(token => <option key={token.id} value={token.id}>{token.symbol} · {token.contract}</option>)}
+              </select>
+            </label>
             <div className="grid grid-cols-[1fr_auto] gap-3">
               <label className="text-xs font-semibold text-gray-400">
                 Text font
@@ -398,18 +463,27 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                   className="mt-1.5 block h-[38px] w-14 cursor-pointer rounded-lg border border-white/10 bg-[#111820] p-1" />
               </label>
             </div>
+            <div className={`grid gap-3 ${previewLogo ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              <OverlayPositionPicker label="Text placement" value={textPosition} onChange={setTextPosition} />
+              {previewLogo && <OverlayPositionPicker label="Logo placement" value={logoPosition} onChange={setLogoPosition} />}
+            </div>
             <div className="flex items-center gap-4 rounded-xl bg-white/[0.05] p-3">
               <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-[#291900] ring-1 ring-[#ffd700]">
-                {previewImage && (
+                {previewBackground && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={previewImage} alt="" className={`absolute inset-0 h-full w-full ${imageMode === 'background' ? 'object-cover' : 'object-contain p-4'}`} />
+                  <img src={previewBackground} alt="" className="absolute inset-0 h-full w-full object-cover" />
                 )}
-                <span className="absolute inset-2 flex items-center justify-center text-center text-xs font-bold leading-tight [text-shadow:0_1px_3px_#000]"
-                  style={{ color: textColor, fontFamily: AD_FONTS[font].canvas }}>
+                {previewLogo && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={previewLogo} alt="" className="absolute h-7 w-7 rounded-full object-contain p-0.5"
+                    style={overlayStyle(logoPosition)} />
+                )}
+                <span className="absolute w-[68%] text-center text-xs font-bold leading-tight [text-shadow:0_1px_3px_#000]"
+                  style={{ ...overlayStyle(textPosition), color: textColor, fontFamily: AD_FONTS[font].canvas }}>
                   {text || 'Your text'}
                 </span>
               </div>
-              <p className="text-xs leading-relaxed text-gray-400">Preview: IPFS backgrounds crop to cover the full circular bubble. Final placement scales automatically.</p>
+              <p className="text-xs leading-relaxed text-gray-400">Preview: your GIF or image fills the bubble; text and token logo use the placements above.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <label className="text-xs font-semibold text-gray-400">
@@ -514,8 +588,7 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
             {quotePanel}
             {error && <p role="alert" className="rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</p>}
             <button onClick={submitForReview} disabled={busy || !text.trim() || !linkUrl.trim() ||
-              slotAvailable !== true || (imageMode === 'logo' && !selectedToken) ||
-              (imageMode === 'background' && !previewImage)}
+              slotAvailable !== true || (imageMode === 'background' && !previewBackground)}
               className="w-full rounded-xl bg-[#ffd700] py-3 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40">
               {busy ? 'Submitting…' : actor ? 'Continue to payment' : 'Connect wallet'}
             </button>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AD_PERIODS,
+  AD_OVERLAY_POSITIONS,
   AD_RECIPIENT,
   PAYMENT_TOKENS,
   AdPricingState,
@@ -80,6 +81,11 @@ describe('marketing ad payments', () => {
   it('makes longer bundles cheaper per hour', () => {
     const hourlyRates = AD_PERIODS.map(period => period.usd / period.hours)
     expect(hourlyRates.every((rate, index) => index === 0 || rate < hourlyRates[index - 1])).toBe(true)
+  })
+
+  it('keeps every creative overlay position available to the editor', () => {
+    expect(AD_OVERLAY_POSITIONS).toContain('top-left')
+    expect(AD_OVERLAY_POSITIONS).toContain('bottom-right')
   })
 
   it('allows adjacent hourly bookings but rejects overlaps', () => {

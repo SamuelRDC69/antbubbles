@@ -30,6 +30,10 @@ openssl rand -hex 32
 
 Set the output as `AD_ADMIN_TOKEN` in the production environment and enter the same value on `/admin/ads`.
 
+## GIF picker
+
+To enable the advert GIF picker, create a GIPHY API key and set `NEXT_PUBLIC_GIPHY_API_KEY`. GIPHY's search API is designed for browser-side use, so this key is intentionally public to the client. Without it, advertisers can still paste a GIF, image, or IPFS URL directly.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
