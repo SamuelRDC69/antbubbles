@@ -18,6 +18,7 @@ import { TokenBubbleData, ChainConfig } from '@/lib/types'
 import { formatPrice, formatVolume } from '@/lib/bubbleUtils'
 import { getLogoUrl } from '@/lib/alcor'
 import type { SwapQuote } from '@/app/api/swap-quote/route'
+import LiquidLoader from '@/components/LiquidLoader'
 
 interface Props {
   chain:          ChainConfig
@@ -239,9 +240,10 @@ function TokenInput({
         {/* Amount */}
         <div className="flex-1 text-right">
           {readOnly ? (
-            <div className={`text-[22px] font-bold text-white leading-none tabular-nums
-              ${loading ? 'opacity-40 animate-pulse' : ''}`}>
-              {loading ? '…' : (parseFloat(amount) > 0 ? amount : '0')}
+            <div className="flex min-h-7 items-center justify-end text-[22px] font-bold leading-none text-white tabular-nums">
+              {loading
+                ? <LiquidLoader label="Loading swap quote" size="small" />
+                : (parseFloat(amount) > 0 ? amount : '0')}
             </div>
           ) : (
             <input
@@ -701,10 +703,7 @@ export default function SwapModal({ chain, tokens, initialToken, onClose }: Prop
           >
             {swapState === 'pending' ? (
               <span className="flex items-center justify-center gap-2">
-                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                </svg>
+                <LiquidLoader label={ctaLabel} size="small" />
                 {ctaLabel}
               </span>
             ) : ctaLabel}

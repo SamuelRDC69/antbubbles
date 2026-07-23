@@ -42,10 +42,10 @@ html, body {
 }
 
 .liquid-loader--small {
-  --liquid-dot: 8px;
-  --liquid-travel: 8px;
-  width: 78px;
-  height: 40px;
+  --liquid-dot: 6px;
+  --liquid-travel: 6px;
+  width: 64px;
+  height: 28px;
 }
 
 .liquid-loader--large {

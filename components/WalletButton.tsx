@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useWallet } from '@/contexts/WalletContext'
+import LiquidLoader from '@/components/LiquidLoader'
 
 export default function WalletButton({ onSwapClick }: { onSwapClick?: () => void }) {
   const { actor, loading, login, logout } = useWallet()
@@ -20,7 +21,9 @@ export default function WalletButton({ onSwapClick }: { onSwapClick?: () => void
 
   if (loading) {
     return (
-      <div className="h-7 w-24 rounded-lg bg-white/[0.07] animate-pulse shrink-0" />
+      <div className="flex h-7 w-24 shrink-0 items-center justify-center">
+        <LiquidLoader label="Loading wallet" size="small" />
+      </div>
     )
   }
 

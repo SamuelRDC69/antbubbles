@@ -16,6 +16,7 @@ import {
   tokenQuantity,
 } from '@/lib/ads'
 import { TokenBubbleData } from '@/lib/types'
+import LiquidLoader from '@/components/LiquidLoader'
 
 interface Props {
   tokens: TokenBubbleData[]
@@ -453,7 +454,9 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
               </div>
               <div className="mt-2 max-h-72 overflow-auto rounded-lg border border-white/10 bg-[#080c10]">
                 {!visibleCalendar ? (
-                  <p className="px-3 py-8 text-center text-xs text-gray-500">Loading hourly availability…</p>
+                  <div className="flex items-center justify-center px-3 py-8">
+                    <LiquidLoader label="Loading hourly availability" />
+                  </div>
                 ) : visibleCalendar.failed ? (
                   <p className="px-3 py-8 text-center text-xs text-red-400">Could not load booking availability.</p>
                 ) : (
