@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { formatPrice } from '@/lib/bubbleUtils'
+import LiquidLoader from '@/components/LiquidLoader'
 
 interface DepthPool {
   id: number
@@ -86,14 +87,8 @@ export default function LiquidityDepth({
 
   if (loading) {
     return (
-      <div className="flex h-full w-full items-center justify-center gap-1.5" aria-label="Loading market depth">
-        {[0, 1, 2].map(i => (
-          <div
-            key={i}
-            className="h-1.5 w-1.5 animate-pulse rounded-full bg-gray-700"
-            style={{ animationDelay: `${i * 150}ms` }}
-          />
-        ))}
+      <div className="flex h-full w-full items-center justify-center">
+        <LiquidLoader label="Loading market depth" />
       </div>
     )
   }

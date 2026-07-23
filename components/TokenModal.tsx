@@ -7,9 +7,23 @@ import { getLogoUrl } from '@/lib/alcor'
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import LiquidLoader from '@/components/LiquidLoader'
+import TokenModalLoader from '@/components/TokenModalLoader'
 
-const TradingChart   = dynamic(() => import('./TradingChart'),   { ssr: false })
-const LiquidityDepth = dynamic(() => import('./LiquidityDepth'), { ssr: false })
+const ChartLoader = () => (
+  <div className="flex h-full w-full items-center justify-center">
+    <LiquidLoader label="Loading chart" />
+  </div>
+)
+
+const TradingChart = dynamic(() => import('./TradingChart'), {
+  ssr: false,
+  loading: ChartLoader,
+})
+const LiquidityDepth = dynamic(() => import('./LiquidityDepth'), {
+  ssr: false,
+  loading: ChartLoader,
+})
 
 interface Props {
   token:   TokenBubbleData
@@ -681,6 +695,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
   const [depthMode,    setDepthMode]    = useState<DepthMode>('pool')
   const [candles,      setCandles]      = useState<Candle[]>([])
   const [chartLoading, setChartLoading] = useState(true)
+  const [modalReady,   setModalReady]   = useState(false)
   const [rangeCandles, setRangeCandles] = useState<Candle[]>([])
 
   const pools   = token.pools ?? []
@@ -822,10 +837,18 @@ export default function TokenModal({ token, chain, onClose }: Props) {
     // Resolve as soon as either returns data; fall back to the other if one is null
     const result = await new Promise<Candle[]>((resolve) => {
       let settled = 0
+      let finished = false
+      const finish = (data: Candle[]) => {
+        if (finished) return
+        finished = true
+        clearTimeout(timeout)
+        resolve(data)
+      }
+      const timeout = setTimeout(() => finish([]), 10_000)
       const tryResolve = (data: Candle[] | null, other: Promise<Candle[] | null>) => {
-        if (data && data.length > 0) { resolve(data); return }
-        if (++settled === 2) resolve([])
-        else other.then(d => { if (d && d.length > 0) resolve(d); else if (++settled >= 2) resolve([]) })
+        if (data && data.length > 0) { finish(data); return }
+        if (++settled === 2) finish([])
+        else other.then(d => { if (d && d.length > 0) finish(d); else if (++settled >= 2) finish([]) })
       }
       serverPromise.then(d => tryResolve(d, alcorPromise))
       alcorPromise.then(d  => tryResolve(d, serverPromise))
@@ -859,7 +882,12 @@ export default function TokenModal({ token, chain, onClose }: Props) {
         }
       })
       .catch(() => {})
-      .finally(() => { if (!ctrl.signal.aborted) setChartLoading(false) })
+      .finally(() => {
+        if (!ctrl.signal.aborted) {
+          setChartLoading(false)
+          setModalReady(true)
+        }
+      })
 
     return () => ctrl.abort()
   }, [chartRange, chartView, chartSource, selectedPool, token.id, fetchChart])
@@ -1053,6 +1081,34 @@ export default function TokenModal({ token, chain, onClose }: Props) {
     ? (askUsd - bidUsd) / bidUsd * 100
     : null
   const RANGES: ChartRange[] = ['1m', '5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M']
+
+  const selectChartView = (view: ChartView) => {
+    if (view === chartView) return
+    setChartLoading(true)
+    setChartView(view)
+  }
+
+  const selectChartSource = (source: ChartSource) => {
+    if (source === chartSource) return
+    setChartLoading(true)
+    setChartSource(source)
+  }
+
+  const selectChartRange = (range: ChartRange) => {
+    if (range === chartRange) return
+    setChartLoading(true)
+    setChartRange(range)
+  }
+
+  const selectPool = (pool: TokenPool) => {
+    if (pool.id === selectedPool?.id) return
+    setChartLoading(true)
+    setSelectedPool(pool)
+  }
+
+  if (!modalReady) {
+    return <TokenModalLoader label={`Loading ${token.symbol} market`} onClose={onClose} />
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:p-4 overflow-hidden"
@@ -1305,7 +1361,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
             {/* Line / Candles / Depth */}
             <div className="flex items-center bg-white/[0.05] rounded-lg p-0.5 gap-0.5">
               {(['line', 'candles'] as ChartView[]).map(v => (
-                <button key={v} onClick={() => setChartView(v)}
+                <button key={v} onClick={() => selectChartView(v)}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
                     chartView === v ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
                   }`}>
@@ -1317,7 +1373,12 @@ export default function TokenModal({ token, chain, onClose }: Props) {
                 </button>
               ))}
               {hasLP && (
-                <button onClick={() => { setChartSource('lp'); if (depthPool) setSelectedPool(depthPool); setChartView('depth') }}
+                <button onClick={() => {
+                  setChartLoading(true)
+                  setChartSource('lp')
+                  if (depthPool) setSelectedPool(depthPool)
+                  setChartView('depth')
+                }}
                   title="Liquidity Depth — shows where LP positions are concentrated across price levels"
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
                     chartView === 'depth' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
@@ -1336,11 +1397,11 @@ export default function TokenModal({ token, chain, onClose }: Props) {
             {/* Swap / spot source toggle */}
             {hasSpot && hasLP && (
               <div className="flex items-center bg-white/[0.05] rounded-lg p-0.5 gap-0.5">
-                <button onClick={() => setChartSource('lp')}
+                <button onClick={() => selectChartSource('lp')}
                   className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all uppercase ${
                     chartSource === 'lp' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
                   }`}>Swap</button>
-                <button onClick={() => setChartSource('spot')}
+                <button onClick={() => selectChartSource('spot')}
                   className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all uppercase ${
                     chartSource === 'spot' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
                   }`}>Spot</button>
@@ -1356,7 +1417,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
                   tokenSymbol={token.symbol}
                   tokenLogoUrl={token.logoUrl}
                   chain={chain}
-                  onSelect={setSelectedPool}
+                  onSelect={selectPool}
                 />
               ) : selectedPool ? (
                 <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg bg-white/[0.05] border border-white/[0.08]">
@@ -1390,7 +1451,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
               chartView === 'depth' ? 'opacity-30 pointer-events-none' : ''
             }`}>
               {RANGES.map(r => (
-                <button key={r} onClick={() => setChartRange(r)}
+                <button key={r} onClick={() => selectChartRange(r)}
                   className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
                     chartRange === r ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
                   }`}>{r}</button>
@@ -1404,6 +1465,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
               <div className="absolute inset-0 p-3">
                 <ErrorBoundary name="LiquidityDepth">
                   <LiquidityDepth
+                    key={`${depthMode}:${depthPool?.id ?? 0}`}
                     poolId={depthPool?.id ?? 0}
                     chain={chain.id}
                     currentUsdPrice={token.usd_price}
@@ -1415,11 +1477,8 @@ export default function TokenModal({ token, chain, onClose }: Props) {
                 </ErrorBoundary>
               </div>
             ) : chartLoading ? (
-              <div className="w-full h-full flex items-center justify-center gap-1.5">
-                {[0,1,2].map(i => (
-                  <div key={i} className="w-1.5 h-1.5 rounded-full bg-gray-700 animate-pulse"
-                    style={{ animationDelay: `${i*150}ms` }} />
-                ))}
+              <div className="flex h-full w-full items-center justify-center">
+                <LiquidLoader label="Loading chart data" />
               </div>
             ) : candles.length < 2 ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-gray-700">

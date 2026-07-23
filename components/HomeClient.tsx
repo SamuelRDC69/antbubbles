@@ -8,13 +8,17 @@ import { CHAINS, DEFAULT_CHAIN } from '@/lib/chains'
 import { useTokens } from '@/hooks/useTokens'
 import TopBar from '@/components/TopBar'
 import LoadingScreen from '@/components/LoadingScreen'
+import TokenModalLoader from '@/components/TokenModalLoader'
 import StatsBar from '@/components/StatsBar'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { prefetchChart, buildDefaultChartUrl } from '@/lib/chartCache'
 
 // Canvas and modal code stay out of the initial client bundle.
 const BubbleChart = dynamic(() => import('@/components/BubbleChart'), { ssr: false })
-const TokenModal = dynamic(() => import('@/components/TokenModal'), { ssr: false })
+const TokenModal = dynamic(() => import('@/components/TokenModal'), {
+  ssr: false,
+  loading: () => <TokenModalLoader />,
+})
 const AdvertiseModal = dynamic(() => import('@/components/AdvertiseModal'), { ssr: false })
 
 interface Props {
