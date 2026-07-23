@@ -32,7 +32,7 @@ Set the output as `AD_ADMIN_TOKEN` in the production environment and enter the s
 
 ## GIF picker
 
-To enable the advert GIF picker, create a GIPHY API key and set `NEXT_PUBLIC_GIPHY_API_KEY`. GIPHY's search API is designed for browser-side use, so this key is intentionally public to the client. Without it, advertisers can still paste a GIF, image, or IPFS URL directly.
+To enable the advert GIF picker, set `NEXT_PUBLIC_GIPHY_API_KEY`. The advert editor uses GIPHY's official web SDK; without a key, advertisers can still paste a GIF, image, or IPFS URL directly.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWallet } from '@/contexts/WalletContext'
-import { GifPicker, Theme } from 'gif-picker-react'
-import { ContentRating, Giphy } from 'gif-picker-react/providers/giphy'
+import { GiphyFetch } from '@giphy/js-fetch-api'
 import {
   AD_PERIODS,
   AD_FONTS,
@@ -43,6 +42,13 @@ interface CalendarSlot {
   startAt: number
   endAt: number
   status: 'pending' | 'approved'
+}
+
+interface GiphyGif {
+  id: string
+  title: string
+  previewUrl: string
+  url: string
 }
 
 function displayAsset(asset: string | null): string {
@@ -103,6 +109,10 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
   const [tokenId, setTokenId] = useState('')
   const [imageMode, setImageMode] = useState<AdImageMode>('none')
   const [ipfsUrl, setIpfsUrl] = useState('')
+  const [gifSearch, setGifSearch] = useState('')
+  const [gifResults, setGifResults] = useState<GiphyGif[]>([])
+  const [gifLoading, setGifLoading] = useState(false)
+  const [gifError, setGifError] = useState('')
   const [font, setFont] = useState<AdFont>('sans')
   const [textColor, setTextColor] = useState('#ffe066')
   const [textPosition, setTextPosition] = useState<AdOverlayPosition>('center')
@@ -135,9 +145,28 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
   const selectedToken = tokens.find(token => token.id === tokenId)
   const previewBackground = imageMode === 'background' ? ipfsImageUrl(ipfsUrl) ?? safeHttpUrl(ipfsUrl) : ''
   const previewLogo = selectedToken?.logoUrl ?? ''
-  const giphyProvider = useMemo(() => GIPHY_API_KEY
-    ? Giphy(GIPHY_API_KEY, { rating: ContentRating.G })
+  const giphyFetch = useMemo(() => GIPHY_API_KEY
+    ? new GiphyFetch(GIPHY_API_KEY)
     : null, [])
+  const searchGifs = useCallback(async (query: string) => {
+    if (!giphyFetch) return
+    setGifLoading(true)
+    setGifError('')
+    try {
+      const result = query
+        ? await giphyFetch.search(query, { limit: 12, rating: 'g' })
+        : await giphyFetch.trending({ limit: 12, rating: 'g' })
+      setGifResults(result.data.flatMap(gif => {
+        const url = gif.images.fixed_width?.url ?? gif.images.original.url
+        const previewUrl = gif.images.fixed_width_small?.url ?? url
+        return url ? [{ id: String(gif.id), title: gif.title || 'GIF', previewUrl, url }] : []
+      }))
+    } catch (cause) {
+      setGifError(cause instanceof Error ? cause.message : 'GIF search failed')
+    } finally {
+      setGifLoading(false)
+    }
+  }, [giphyFetch])
   const bookingStartAt = startTime ? new Date(startTime).getTime() : 0
   const availabilityKey = `${bookingStartAt}:${hours}`
   const slotAvailable = slotAvailability?.key === availabilityKey ? slotAvailability.available : null
@@ -428,10 +457,31 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                 </label>
                 <section aria-labelledby="gif-picker-title" className="rounded-xl border border-white/10 bg-[#080c10] p-3">
                   <h3 id="gif-picker-title" className="mb-2 text-xs font-semibold text-gray-300">Find a GIF</h3>
-                  {giphyProvider ? (
-                    <div className="ad-gif-picker">
-                      <GifPicker provider={giphyProvider} theme={Theme.DARK} width="100%" height={300} autoFocusSearch={false}
-                        onGifClick={gif => setIpfsUrl(gif.imageUrl)} />
+                  {giphyFetch ? (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <input value={gifSearch} onChange={event => setGifSearch(event.target.value)}
+                          onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void searchGifs(gifSearch.trim()) } }}
+                          placeholder="Search GIPHY" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none focus:border-[#ffd700]/50" />
+                        <button type="button" onClick={() => void searchGifs(gifSearch.trim())} disabled={gifLoading}
+                          className="rounded-lg bg-[#ffd700] px-3 text-sm font-bold text-black disabled:opacity-40">
+                          {gifSearch.trim() ? 'Search' : 'Trending'}
+                        </button>
+                      </div>
+                      {gifLoading && <p className="text-center text-xs text-gray-500">Loading GIFs…</p>}
+                      {gifError && <p role="alert" className="text-xs text-red-300">{gifError}</p>}
+                      {gifResults.length > 0 && !gifLoading && (
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {gifResults.map(gif => (
+                            <button key={gif.id} type="button" title={`Use ${gif.title}`} onClick={() => setIpfsUrl(gif.url)}
+                              className="aspect-square overflow-hidden rounded-md border border-white/10 focus:outline-none focus:ring-2 focus:ring-[#ffd700]">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={gif.previewUrl} alt={gif.title} className="h-full w-full object-cover" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-center text-[10px] font-semibold text-gray-500">Powered by GIPHY</p>
                     </div>
                   ) : (
                     <p className="text-[11px] leading-relaxed text-gray-500">GIF search needs <code className="text-gray-300">NEXT_PUBLIC_GIPHY_API_KEY</code>; you can still paste any GIF URL above.</p>
