@@ -87,6 +87,8 @@ export interface TokenBubbleData {
   cmc_id?: number
   // All AMM pools this token participates in, sorted by TVL desc
   pools?: TokenPool[]
+  // Deepest pool against this chain's native token; canonical price/performance source.
+  nativePoolId?: number
   // Market cap (from on-chain supply)
   supply?: number
   totalSupply?: number

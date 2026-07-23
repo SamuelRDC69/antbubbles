@@ -691,20 +691,26 @@ export default function TokenModal({ token, chain, onClose }: Props) {
   const [contractCopied, setContractCopied] = useState(false)
   const [chartRange,   setChartRange]   = useState<ChartRange>('1D')
   const [chartView,    setChartView]    = useState<ChartView>('line')
-  const [chartSource,  setChartSource]  = useState<ChartSource>((token.pools?.length ?? 0) > 0 ? 'lp' : 'spot')
+  const [chartSource,  setChartSource]  = useState<ChartSource>(
+    token.pools?.some(pool => pool.counterpartId === `${chain.systemToken.toLowerCase()}-${chain.systemContract}`)
+      ? 'lp'
+      : 'spot'
+  )
   const [depthMode,    setDepthMode]    = useState<DepthMode>('pool')
   const [candles,      setCandles]      = useState<Candle[]>([])
   const [chartLoading, setChartLoading] = useState(true)
   const [modalReady,   setModalReady]   = useState(false)
   const [rangeCandles, setRangeCandles] = useState<Candle[]>([])
 
-  const pools   = token.pools ?? []
+  const pools   = useMemo(() => token.pools ?? [], [token.pools])
   const hasSpot = !!token.ticker_id
   const hasLP   = pools.length > 0
 
-  // Default LP pool: prefer WAX pair, else first by TVL
-  const defaultPool = pools.find(p => p.counterpartId === `${chain.systemToken.toLowerCase()}-${chain.systemContract}`)
-    ?? pools[0]
+  // Price/performance always use this canonical chain-native pool. The selected
+  // pool below only controls the chart/depth view.
+  const nativePool = pools.find(p => p.id === token.nativePoolId)
+    ?? pools.find(p => p.counterpartId === `${chain.systemToken.toLowerCase()}-${chain.systemContract}`)
+  const defaultPool = nativePool
 
   const [selectedPool, setSelectedPool] = useState<TokenPool | undefined>(defaultPool)
   const depthPool = useMemo(() => {
@@ -892,33 +898,30 @@ export default function TokenModal({ token, chain, onClose }: Props) {
     return () => ctrl.abort()
   }, [chartRange, chartView, chartSource, selectedPool, token.id, fetchChart])
 
-  // Rolling 24-hour range: 5-minute swap candles avoid the UTC-day boundary of a 1D candle.
+  // Rolling 24-hour range always follows the canonical native-token pool.
   useEffect(() => {
     const ctrl = new AbortController()
     const to = roundHour(Date.now())
     const from = roundHour(Date.now() - 24 * 60 * 60 * 1000)
-    let url = ''
-    if (chartSource === 'lp' && selectedPool) {
-      url = `/api/pool-chart?chain=${chain.id}&pool_id=${selectedPool.id}&resolution=5&from=${from}&to=${to}`
-      if (selectedPool.reversed) url += '&reverse=true'
-    } else if (chartSource === 'spot' && token.ticker_id) {
-      url = `/api/klines?chain=${chain.id}&ticker_id=${encodeURIComponent(token.ticker_id)}&resolution=5&from=${from}&to=${to}`
-    }
+    let url = nativePool
+      ? `/api/pool-chart?chain=${chain.id}&pool_id=${nativePool.id}&resolution=5&from=${from}&to=${to}`
+      : ''
+    if (nativePool?.reversed) url += '&reverse=true'
     if (!url) { queueMicrotask(() => setRangeCandles([])); return () => ctrl.abort() }
     fetch(url, { signal: ctrl.signal })
       .then(response => response.ok ? response.json() : [])
       .then((raw: unknown) => Array.isArray(raw) ? raw as Candle[] : [])
-      .then(raw => chartSource === 'lp' ? raw.map(c => ({
+      .then(raw => raw.map(c => ({
         ...c,
         open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close),
-      })) : raw)
+      })))
       .then(data => { if (!ctrl.signal.aborted) setRangeCandles(data) })
       .catch(() => { if (!ctrl.signal.aborted) setRangeCandles([]) })
     return () => ctrl.abort()
-  }, [chain.id, chartSource, selectedPool?.id, selectedPool?.reversed, token.ticker_id])
+  }, [chain.id, nativePool])
 
   // Fetch all perf values using PERF_CFGS (exact windows, correct resolutions).
-  // Runs on token/source/pool change; resets stale values first.
+  // Pool/source selection only changes the chart; performance stays native.
   useEffect(() => {
     // Reset to API-seeded values so we don't show stale data from previous source
     queueMicrotask(() => setPerfs({
@@ -933,14 +936,11 @@ export default function TokenModal({ token, chain, onClose }: Props) {
       const from = roundHour(Date.now() - fromMs)
       const to   = roundHour(Date.now())
 
-      // Use the same source selected for the chart so performance never changes source.
-      const perfPool = chartSource === 'lp' ? selectedPool : undefined
+      const perfPool = nativePool
       let url = ''
       if (perfPool) {
         url = `/api/pool-chart?chain=${chain.id}&pool_id=${perfPool.id}&resolution=${resolution}&from=${from}&to=${to}`
         if (perfPool.reversed) url += `&reverse=true`
-      } else if (token.ticker_id) {
-        url = `/api/klines?chain=${chain.id}&ticker_id=${encodeURIComponent(token.ticker_id)}&resolution=${resolution}&from=${from}&to=${to}`
       } else {
         return
       }
@@ -955,15 +955,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
             if (perfPool.reversed) u.searchParams.set('reverse', 'true')
             return u.toString()
           })()
-        : token.ticker_id
-          ? (() => {
-              const u = new URL(`https://${chain.id}.alcor.exchange/api/v2/tickers/${encodeURIComponent(token.ticker_id!)}/charts`)
-              u.searchParams.set('resolution', resolution)
-              u.searchParams.set('from', String(from))
-              u.searchParams.set('to', String(to))
-              return u.toString()
-            })()
-          : null
+        : null
 
       const normCandles = (raw: Candle[]): Candle[] =>
         perfPool
@@ -1008,7 +1000,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
     })
 
     return () => ctrl.abort()
-  }, [token.id, token.change24, token.change7d, chain.id, token.ticker_id, chartSource, selectedPool?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token.id, token.change24, token.change7d, chain.id, nativePool])
 
   const isPositive = candles.length >= 2
     ? candles[candles.length-1].close >= candles[0].close
@@ -1022,43 +1014,30 @@ export default function TokenModal({ token, chain, onClose }: Props) {
     : null
   const explorerUrl = `${chain.explorerBase}/account/${token.contract}`
 
-  // All ticker values (high24, low24, bid, ask) are in the quote currency (WAX for WAX-chain
-  // spot pairs). Convert to USD the same way the main price is derived.
-  const waxToUsd = token.system_price > 0 ? token.usd_price / token.system_price : 0
-  const hiUsd    = token.high24 > 0 && waxToUsd > 0 ? token.high24 * waxToUsd : 0
-  const loUsd    = token.low24  > 0 && waxToUsd > 0 ? token.low24  * waxToUsd : 0
-  const bidUsd   = token.bid    > 0 && waxToUsd > 0 ? token.bid    * waxToUsd : 0
-  const askUsd   = token.ask    > 0 && waxToUsd > 0 ? token.ask    * waxToUsd : 0
-  // ── Range bar — three-tier fallback ───────────────────────────────────────
-  // A: spot ticker high24/low24 (real intraday range, almost always 0 on WAX)
-  // B: last candle hi/lo — on default 1D view the last bar = today's candle,
-  //    giving the true 24h intraday range. Falls back gracefully for other ranges.
-  //    Requires candle prices in WAX (spot source, or LP with WAX counterpart).
-  // C: open-close from change24, padded ±15% so the marker isn't at an extreme.
-  //    Always works; produces a useful indicator even for illiquid tokens.
+  // Spot bid/ask values are quoted in the chain-native token.
+  const nativeToUsd = token.system_price > 0 ? token.usd_price / token.system_price : 0
+  const bidUsd   = token.bid > 0 && nativeToUsd > 0 ? token.bid * nativeToUsd : 0
+  const askUsd   = token.ask > 0 && nativeToUsd > 0 ? token.ask * nativeToUsd : 0
+  // Range also stays on the canonical native pool when the chart pool changes.
 
-  const isWaxCounterpart = selectedPool?.counterpartId ===
-    `${chain.systemToken.toLowerCase()}-${chain.systemContract}`
-  const candleToUsd = (chartSource === 'spot' || (chartSource === 'lp' && isWaxCounterpart)) && waxToUsd > 0
-    ? waxToUsd : 0
+  const candleToUsd = nativePool && nativeToUsd > 0 ? nativeToUsd : 0
 
-  // Tier A
-  let rangeHiUsd: number = chartSource === 'spot' ? hiUsd : 0
-  let rangeLoUsd: number = chartSource === 'spot' ? loUsd : 0
-  let rangeLabel: string = '24h Range'
+  let rangeHiUsd = 0
+  let rangeLoUsd = 0
+  let rangeLabel = '24h Native Pool Range'
 
-  // Tier B: true rolling 24h range from 5-minute candles.
+  // True rolling 24h range from 5-minute native-pool candles.
   if (!(rangeHiUsd > rangeLoUsd && rangeHiUsd > 0)) {
     const highs = rangeCandles.map(candle => candle.high).filter(Number.isFinite)
     const lows = rangeCandles.map(candle => candle.low).filter(Number.isFinite)
     if (highs.length && lows.length && candleToUsd > 0) {
       rangeHiUsd = Math.max(...highs) * candleToUsd
       rangeLoUsd = Math.min(...lows) * candleToUsd
-      rangeLabel = '24h Swap Range'
+      rangeLabel = '24h Native Pool Range'
     }
   }
 
-  // Tier C: estimate from % change — always available
+  // Estimate from the native-pool change if candles are unavailable.
   if (!(rangeHiUsd > rangeLoUsd && rangeHiUsd > 0) && Math.abs(token.change24) > 0.01) {
     const open24  = token.usd_price / (1 + token.change24 / 100)
     const rawLo   = Math.min(token.usd_price, open24)
@@ -1066,7 +1045,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
     const pad     = (rawHi - rawLo) * 0.15   // keeps marker off the extreme edges
     rangeHiUsd = rawHi + pad
     rangeLoUsd = Math.max(0, rawLo - pad)
-    rangeLabel  = '24h Range'
+    rangeLabel  = '24h Native Pool Range'
   }
 
   const showRange = rangeHiUsd > rangeLoUsd && rangeHiUsd > 0

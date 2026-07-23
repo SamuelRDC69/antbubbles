@@ -75,8 +75,8 @@ export function buildDefaultChartUrl(
   const systemTokenId = `${chain.systemToken.toLowerCase()}-${chain.systemContract}`
 
   // Prefer LP pool (more tokens have liquidity data than a spot ticker)
-  const defaultPool = token.pools?.find(p => p.counterpartId === systemTokenId)
-    ?? token.pools?.[0]
+  const defaultPool = token.pools?.find(p => p.id === token.nativePoolId)
+    ?? token.pools?.find(p => p.counterpartId === systemTokenId)
 
   if (defaultPool) {
     let url = `/api/pool-chart?chain=${chain.id}&pool_id=${defaultPool.id}&resolution=1D&from=${from}&to=${now}`

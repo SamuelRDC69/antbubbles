@@ -43,25 +43,10 @@ function canonicalTokenKey(token: Pick<AlcorToken, 'contract' | 'symbol'>): stri
 // Minimum thresholds to filter out dead/scam tokens
 const MIN_VOL24_USD = 5     // at least $5 combined 24h volume
 const MIN_TVL_USD   = 100   // OR at least $100 TVL in pools
-const MIN_CHANGE_TVL_USD = 100
-const MIN_TICKER_CHANGE_VOL24_USD = 1000
-const MAX_ABS_POOL_CHANGE = 500
-
-function weightedAverageChange(
-  pools: Array<{ change: number; tvl: number; volume24: number }>,
-): number | null {
-  const valid = pools.filter((pool) =>
-    Number.isFinite(pool.change)
-    && Math.abs(pool.change) <= MAX_ABS_POOL_CHANGE
-    && pool.tvl >= MIN_CHANGE_TVL_USD
-  )
-  if (valid.length === 0) return null
-
-  const weightSum = valid.reduce((sum, pool) => sum + Math.max(pool.tvl, pool.volume24, 1), 0)
-  if (weightSum <= 0) return null
-  return valid.reduce((sum, pool) =>
-    sum + pool.change * Math.max(pool.tvl, pool.volume24, 1), 0
-  ) / weightSum
+function changeForPoolSide(change: number, reversed: boolean): number {
+  if (!reversed) return change
+  const ratio = 1 + change / 100
+  return ratio > 0 ? (1 / ratio - 1) * 100 : 0
 }
 
 export function mergeTokenData(
@@ -83,14 +68,10 @@ export function mergeTokenData(
 
   interface PoolAgg {
     totalTvl:  number
-    wChange24: number
-    wChange7d: number
     vol24usd:  number
     vol7dusd:  number
     vol30dusd: number
-    changes:   Array<{ change: number; tvl: number; volume24: number }>
-    weekChanges: Array<{ change: number; tvl: number; volume24: number }>
-    primarySwap?: { price: number; tvl: number; change24: number; change7d: number }
+    primarySwap?: { poolId: number; price: number; tvl: number; change24: number; change7d: number }
     pools:     TokenPool[]
   }
   const poolMap = new Map<string, PoolAgg>()
@@ -100,19 +81,15 @@ export function mergeTokenData(
     for (const side of [pool.tokenA, pool.tokenB]) {
       if (side.id === systemTokenId) continue
       const counterpart = side === pool.tokenA ? pool.tokenB : pool.tokenA
+      const reversed = side === pool.tokenB
       const tvl = pool.tvlUSD || 0
       const agg = poolMap.get(side.id) ?? {
-        totalTvl: 0, wChange24: 0, wChange7d: 0,
-        vol24usd: 0, vol7dusd: 0, vol30dusd: 0, changes: [], weekChanges: [], pools: [],
+        totalTvl: 0, vol24usd: 0, vol7dusd: 0, vol30dusd: 0, pools: [],
       }
       agg.totalTvl  += tvl
-      agg.wChange24 += (pool.change24    || 0) * tvl
-      agg.wChange7d += (pool.changeWeek  || 0) * tvl
       agg.vol24usd  += pool.volumeUSD24  || 0
       agg.vol7dusd  += pool.volumeUSDWeek  || 0
       agg.vol30dusd += pool.volumeUSDMonth || 0
-      agg.changes.push({ change: pool.change24 || 0, tvl, volume24: pool.volumeUSD24 || 0 })
-      agg.weekChanges.push({ change: pool.changeWeek || 0, tvl, volume24: pool.volumeUSDWeek || 0 })
       if (counterpart.id === systemTokenId && systemUsdPrice > 0) {
         const priceInSystem = side === pool.tokenA ? pool.priceA : pool.priceB
         if (Number.isFinite(priceInSystem) && priceInSystem! > 0) {
@@ -120,10 +97,11 @@ export function mergeTokenData(
           // canonical swap price and its own 24h move drives the bubble.
           if (!agg.primarySwap || tvl > agg.primarySwap.tvl) {
             agg.primarySwap = {
+              poolId: pool.id,
               price: priceInSystem! * systemUsdPrice,
               tvl,
-              change24: pool.change24 || 0,
-              change7d: pool.changeWeek || 0,
+              change24: changeForPoolSide(pool.change24 || 0, reversed),
+              change7d: changeForPoolSide(pool.changeWeek || 0, reversed),
             }
           }
         }
@@ -135,7 +113,7 @@ export function mergeTokenData(
           volume24usd:       pool.volumeUSD24 || 0,
           counterpartId:     counterpart.id,
           counterpartSymbol: counterpart.symbol,
-          reversed:          side === pool.tokenB, // tokenB needs reverse=true to show correct price direction
+          reversed, // tokenB needs reverse=true to show correct price direction
         })
       }
       poolMap.set(side.id, agg)
@@ -156,8 +134,9 @@ export function mergeTokenData(
 
     const ticker = tickerMap.get(token.id)
     const agg    = poolMap.get(token.id)
+    if (!agg?.primarySwap) continue
 
-    const usdPrice = agg?.primarySwap?.price ?? token.usd_price
+    const usdPrice = agg.primarySwap.price
     const systemPrice = systemUsdPrice > 0 ? usdPrice / systemUsdPrice : token.system_price
     const waxUsdPrice  = systemUsdPrice || (token.system_price > 0 ? token.usd_price / token.system_price : 0)
     const vol24spot    = ticker && waxUsdPrice > 0 ? ticker.target_volume * waxUsdPrice : 0
@@ -169,18 +148,8 @@ export function mergeTokenData(
     // Quality filter: skip tokens with no meaningful activity
     if (volume24usd < MIN_VOL24_USD && (tvlUsd ?? 0) < MIN_TVL_USD) continue
 
-    // change24: pool TVL-weighted average is far more reliable than ticker.change24
-    // (ticker.change24 is 0 for ~99% of WAX pairs). Fall back to ticker only if no pool data.
-    const poolChange24 = agg ? weightedAverageChange(agg.changes) : null
-    const tickerChange24 = ticker
-      && Number.isFinite(ticker.change24)
-      && Math.abs(ticker.change24) <= MAX_ABS_POOL_CHANGE
-      && volume24usd >= MIN_TICKER_CHANGE_VOL24_USD
-      ? ticker.change24
-      : 0
-    const change24 = agg?.primarySwap?.change24 ?? poolChange24 ?? tickerChange24
-
-    const change7d = agg?.primarySwap?.change7d ?? (agg ? weightedAverageChange(agg.weekChanges) ?? undefined : undefined)
+    const change24 = agg.primarySwap.change24
+    const change7d = agg.primarySwap.change7d
 
     const mergedToken: TokenBubbleData = {
       id:           token.id,
@@ -206,6 +175,7 @@ export function mergeTokenData(
       volume30dusd: agg && agg.vol30dusd > 0 ? agg.vol30dusd : undefined,
       tvlUsd,
       pools:        agg?.pools ?? [],
+      nativePoolId: agg.primarySwap.poolId,
     }
 
     const key = canonicalTokenKey(token)
