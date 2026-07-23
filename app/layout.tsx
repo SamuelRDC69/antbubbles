@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   openGraph: {
     title:       "AntBubbles — WAX Token Visualizer",
     description: "Real-time bubble chart for WAX tokens. Track price changes, volume, and market cap powered by Alcor DEX.",
-    url:         "https://antbubbles.com",
+    url:         "https://bubbles.wax-pepe.vip",
     siteName:    "AntBubbles",
     type:        "website",
     images: [{ url: "/og.png", width: 1200, height: 630, alt: "AntBubbles" }],
@@ -22,7 +22,8 @@ export const metadata: Metadata = {
     description: "Real-time bubble chart for WAX tokens powered by Alcor DEX.",
     images:      ["/og.png"],
   },
-  metadataBase: new URL("https://antbubbles.com"),
+  metadataBase: new URL("https://bubbles.wax-pepe.vip"),
+  alternates: { canonical: "/" },
 };
 
 export default function RootLayout({
