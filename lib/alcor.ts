@@ -90,7 +90,7 @@ export function mergeTokenData(
     vol30dusd: number
     changes:   Array<{ change: number; tvl: number; volume24: number }>
     weekChanges: Array<{ change: number; tvl: number; volume24: number }>
-    swapPrices: Array<{ price: number; tvl: number }>
+    primarySwap?: { price: number; tvl: number; change24: number; change7d: number }
     pools:     TokenPool[]
   }
   const poolMap = new Map<string, PoolAgg>()
@@ -103,7 +103,7 @@ export function mergeTokenData(
       const tvl = pool.tvlUSD || 0
       const agg = poolMap.get(side.id) ?? {
         totalTvl: 0, wChange24: 0, wChange7d: 0,
-        vol24usd: 0, vol7dusd: 0, vol30dusd: 0, changes: [], weekChanges: [], swapPrices: [], pools: [],
+        vol24usd: 0, vol7dusd: 0, vol30dusd: 0, changes: [], weekChanges: [], pools: [],
       }
       agg.totalTvl  += tvl
       agg.wChange24 += (pool.change24    || 0) * tvl
@@ -116,7 +116,16 @@ export function mergeTokenData(
       if (counterpart.id === systemTokenId && systemUsdPrice > 0) {
         const priceInSystem = side === pool.tokenA ? pool.priceA : pool.priceB
         if (Number.isFinite(priceInSystem) && priceInSystem! > 0) {
-          agg.swapPrices.push({ price: priceInSystem! * systemUsdPrice, tvl })
+          // Match the default chart: the deepest system-token pool is the
+          // canonical swap price and its own 24h move drives the bubble.
+          if (!agg.primarySwap || tvl > agg.primarySwap.tvl) {
+            agg.primarySwap = {
+              price: priceInSystem! * systemUsdPrice,
+              tvl,
+              change24: pool.change24 || 0,
+              change7d: pool.changeWeek || 0,
+            }
+          }
         }
       }
       if (tvl > 0) {
@@ -148,11 +157,7 @@ export function mergeTokenData(
     const ticker = tickerMap.get(token.id)
     const agg    = poolMap.get(token.id)
 
-    const swapUsdPrice = agg?.swapPrices.length
-      ? agg.swapPrices.reduce((sum, item) => sum + item.price * Math.max(item.tvl, 1), 0)
-        / agg.swapPrices.reduce((sum, item) => sum + Math.max(item.tvl, 1), 0)
-      : 0
-    const usdPrice = swapUsdPrice > 0 ? swapUsdPrice : token.usd_price
+    const usdPrice = agg?.primarySwap?.price ?? token.usd_price
     const systemPrice = systemUsdPrice > 0 ? usdPrice / systemUsdPrice : token.system_price
     const waxUsdPrice  = systemUsdPrice || (token.system_price > 0 ? token.usd_price / token.system_price : 0)
     const vol24spot    = ticker && waxUsdPrice > 0 ? ticker.target_volume * waxUsdPrice : 0
@@ -173,9 +178,9 @@ export function mergeTokenData(
       && volume24usd >= MIN_TICKER_CHANGE_VOL24_USD
       ? ticker.change24
       : 0
-    const change24 = poolChange24 !== null ? poolChange24 : tickerChange24
+    const change24 = agg?.primarySwap?.change24 ?? poolChange24 ?? tickerChange24
 
-    const change7d = agg ? weightedAverageChange(agg.weekChanges) ?? undefined : undefined
+    const change7d = agg?.primarySwap?.change7d ?? (agg ? weightedAverageChange(agg.weekChanges) ?? undefined : undefined)
 
     const mergedToken: TokenBubbleData = {
       id:           token.id,

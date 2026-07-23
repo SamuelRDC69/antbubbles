@@ -284,15 +284,12 @@ export function formatPrice(p: number): string {
   if (p >= 0.1)    return `$${p.toFixed(3)}`
   if (p >= 0.01)   return `$${p.toFixed(4)}`
 
-  // For sub-cent prices, show exactly 3 significant figures using plain decimal notation.
-  // e.g. 0.0000118 → "$0.0000118",  0.000000118 → "$0.000000118"
-  // Avoids Unicode subscripts which render as commas/dots in many fonts.
-  const exp      = Math.floor(Math.log10(p))       // e.g. -5 for 0.0000118
-  const decimals = -exp + 2                         // leading zeros + 3 sig figs
-  if (decimals <= 10) return `$${p.toFixed(decimals)}`
-
-  // Truly microscopic prices (>10 decimal places): show what we can
-  return `$${p.toFixed(10)}`
+  // Compact leading zeroes: 0.0000000001109 → $0.0₉1109.
+  const [mantissa, exponentText] = p.toExponential(3).split('e')
+  const exponent = Number(exponentText)
+  const zeroes = -exponent - 1
+  const digits = mantissa.replace('.', '')
+  return `$0.0${String(zeroes).replace(/\d/g, digit => '₀₁₂₃₄₅₆₇₈₉'[Number(digit)])}${digits}`
 }
 
 // Splits a sub-cent price into [dimmed-prefix, bright-digits] for two-tone display.
