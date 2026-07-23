@@ -121,19 +121,21 @@ export function useTokens(
     const hasSeeded = isDefaultChain && initialTokens.length > 0
 
     // Show cached data immediately while SSE connects
-    if (!hasSeeded) {
-      const cached = lsRead(chain.id)
-      if (cached.length > 0) {
-        setTokens(cached)
-        setLoading(false)
-        ensureSupply(cached, chain.id)
-      } else {
-        setLoading(true)
-        setTokens([])
+    queueMicrotask(() => {
+      if (!hasSeeded) {
+        const cached = lsRead(chain.id)
+        if (cached.length > 0) {
+          setTokens(cached)
+          setLoading(false)
+          ensureSupply(cached, chain.id)
+        } else {
+          setLoading(true)
+          setTokens([])
+        }
       }
-    }
-    if (hasSeeded) ensureSupply(initialTokens, chain.id)
-    setError(null)
+      if (hasSeeded) ensureSupply(initialTokens, chain.id)
+      setError(null)
+    })
 
     // ── EventSource ──────────────────────────────────────────────────────────
     // The SSE stream sends one event with fresh token data then closes.

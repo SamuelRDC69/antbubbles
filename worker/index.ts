@@ -23,15 +23,12 @@
 
 import { Redis } from '@upstash/redis'
 import { mergeTokenData } from '../lib/alcor.js'
+import { parseAlcorPayloads } from '../lib/alcorSchemas.js'
+import { getTokenMetadata } from '../lib/tokenMetadata.js'
 import type {
   TokenBubbleData,
   ChainConfig,
-  AlcorToken,
-  AlcorTicker,
-  AlcorPool,
 } from '../lib/types.js'
-
-// ── Shared headers for Alcor API (without User-Agent Alcor hangs server requests) ─────
 
 const ALCOR_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -177,10 +174,13 @@ async function pollChain(chain: ChainConfig): Promise<TokenBubbleData[] | null> 
       return null
     }
 
-    const [tokens, tickers, pools]: [AlcorToken[], AlcorTicker[], AlcorPool[]] =
-      await Promise.all([tokensRes.json(), tickersRes.json(), poolsRes.json()])
+    const [rawTokens, rawTickers, rawPools] = await Promise.all([tokensRes.json(), tickersRes.json(), poolsRes.json()])
+    const { tokens, tickers, pools } = parseAlcorPayloads(rawTokens, rawTickers, rawPools)
 
-    const merged    = mergeTokenData(tokens, tickers, pools, chain)
+    const merged    = mergeTokenData(tokens, tickers, pools, chain).map(token => ({
+      ...token,
+      metadata: getTokenMetadata(chain.id, token.symbol, token.contract),
+    }))
     const withRanks = merged.map((t, i) => ({ ...t, rank: i + 1 }))
 
     const now      = Date.now()

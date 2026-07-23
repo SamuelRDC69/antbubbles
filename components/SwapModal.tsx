@@ -12,10 +12,11 @@
 const MARKET_ACCOUNT = 'YOUR_MARKET_ACCOUNT'   // ← replace this
 const MARKET_FEE_PCT = 0.1                     // for display only
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useWallet } from '@/contexts/WalletContext'
 import { TokenBubbleData, ChainConfig } from '@/lib/types'
 import { formatPrice, formatVolume } from '@/lib/bubbleUtils'
+import { getLogoUrl } from '@/lib/alcor'
 import type { SwapQuote } from '@/app/api/swap-quote/route'
 
 interface Props {
@@ -41,7 +42,7 @@ function makeSystemToken(chain: ChainConfig): TokenBubbleData {
     ask:         0,
     market_id:   null,
     ticker_id:   null,
-    logoUrl:     `/api/logo?id=${encodeURIComponent(`${chain.systemToken.toLowerCase()}-${chain.systemContract}`)}&chain=${chain.id}`,
+    logoUrl:     getLogoUrl(chain, `${chain.systemToken.toLowerCase()}-${chain.systemContract}`),
     decimals:    8,
   }
 }
@@ -269,6 +270,10 @@ function ImpactBadge({ pct }: { pct: number }) {
   return <span className={`text-[11px] font-semibold ${cls}`}>{pct.toFixed(2)}%</span>
 }
 
+function RouteArrow() {
+  return <svg className="w-3 h-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9:5l7 7-7 7" /></svg>
+}
+
 // ── Route display ─────────────────────────────────────────────────────────────
 function RouteDisplay({
   inToken,
@@ -279,19 +284,14 @@ function RouteDisplay({
   outToken: TokenBubbleData
   via:      string | null   // intermediate symbol for 2-hop
 }) {
-  const Arrow = () => (
-    <svg className="w-3 h-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-    </svg>
-  )
   return (
     <div className="flex items-center gap-1 flex-wrap">
       <span className="text-[11px] text-gray-300 font-semibold">{inToken.symbol}</span>
-      <Arrow />
+      <RouteArrow />
       {via && (
         <>
           <span className="text-[11px] text-gray-500">{via}</span>
-          <Arrow />
+          <RouteArrow />
         </>
       )}
       <span className="text-[11px] text-gray-300 font-semibold">{outToken.symbol}</span>
@@ -342,7 +342,7 @@ export default function SwapModal({ chain, tokens, initialToken, onClose }: Prop
     if (debounceRef.current) clearTimeout(debounceRef.current)
     const amt = parseFloat(amountIn)
     if (!tokenIn || !tokenOut || isNaN(amt) || amt <= 0) {
-      setQuote(null); setQuoteErr(null); return
+      queueMicrotask(() => { setQuote(null); setQuoteErr(null) }); return
     }
     debounceRef.current = setTimeout(async () => {
       setQuoteLd(true); setQuoteErr(null)
@@ -414,8 +414,9 @@ export default function SwapModal({ chain, tokens, initialToken, onClose }: Prop
         },
       }])
       // WharfKit returns the transaction response; extract tx ID
-      const txid = (result as any)?.response?.transaction_id
-        ?? (result as any)?.transaction_id
+      const transaction = result as { response?: { transaction_id?: string }; transaction_id?: string }
+      const txid = transaction.response?.transaction_id
+        ?? transaction.transaction_id
         ?? null
       setTxId(txid)
       setSwapState('success')

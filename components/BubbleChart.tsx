@@ -284,6 +284,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
   const offscreenCacheRef = useRef<Map<string, BubbleCanvasEntry>>(new Map())
   const hoveredRef      = useRef<string | null>(null)
   const dragRef         = useRef<SimNode | null>(null)
+  const [dragging, setDragging] = useState(false)
   const mouseTargetRef  = useRef<{ x: number; y: number } | null>(null)
   const hasDraggedRef   = useRef(false)
   const dragStartRef    = useRef<{ x: number; y: number } | null>(null)
@@ -547,6 +548,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
     const px = e.clientX - (rect?.left ?? 0)
     const py = e.clientY - (rect?.top  ?? 0)
     dragRef.current        = node
+    setDragging(true)
     hasDraggedRef.current  = false
     dragStartRef.current   = { x: px, y: py }
     mouseTargetRef.current = { x: px, y: py }
@@ -559,6 +561,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       const wasDrag = hasDraggedRef.current
       if (!wasDrag) onSelectToken(dragRef.current)
       dragRef.current        = null
+      setDragging(false)
       mouseTargetRef.current = null
       hasDraggedRef.current  = false
       dragStartRef.current   = null
@@ -569,6 +572,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
 
   const handleMouseLeave = useCallback(() => {
     dragRef.current        = null
+    setDragging(false)
     mouseTargetRef.current = null
     hasDraggedRef.current  = false
     dragStartRef.current   = null
@@ -598,6 +602,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       e.preventDefault()
       const { cx, cy } = getTouchCanvasPos(touch)
       dragRef.current        = node
+      setDragging(true)
       hasDraggedRef.current  = false
       dragStartRef.current   = { x: cx, y: cy }
       mouseTargetRef.current = { x: cx, y: cy }
@@ -629,6 +634,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
         const wasDrag = hasDraggedRef.current
         if (!wasDrag) onSelectToken(dragRef.current)
         dragRef.current        = null
+        setDragging(false)
         mouseTargetRef.current = null
         hasDraggedRef.current  = false
         dragStartRef.current   = null
@@ -664,7 +670,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
         style={{ display: 'block' }}
       />
 
-      {tooltip && !dragRef.current && (
+      {tooltip && !dragging && (
         <div
           className="pointer-events-none absolute z-10 px-3 py-2 rounded-xl bg-black/90 border border-white/10 shadow-xl"
           style={{

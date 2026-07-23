@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@upstash/redis": "^1.38.0",
-    "tsx": "^4.19.2"
+    "tsx": "^4.19.2",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^20",

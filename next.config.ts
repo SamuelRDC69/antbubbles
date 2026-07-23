@@ -23,6 +23,12 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'alcor.exchange' },
     ],
   },
+  async headers() {
+    return [{
+      source: '/token-logos/:path*',
+      headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+    }]
+  },
 }
 
 export default withBundleAnalyzer(nextConfig)

@@ -48,6 +48,22 @@ export async function GET(req: NextRequest) {
     } catch { /* Redis unavailable */ }
   }
 
-  // Cache miss — tell the browser to fetch Alcor directly (returns immediately)
-  return NextResponse.json([], { headers: { 'X-Cache-Status': 'miss' } })
+  // Cache miss — fetch server-side so Swap charts do not depend on browser CORS.
+  const url = new URL(`https://${chain}.alcor.exchange/api/v2/swap/pools/${poolId}/candles`)
+  url.searchParams.set('resolution', resolution)
+  if (from) url.searchParams.set('from', from)
+  if (to) url.searchParams.set('to', to)
+  if (reverse) url.searchParams.set('reverse', reverse)
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok) throw new Error(`Alcor returned ${res.status}`)
+    const data = await res.json()
+    cache.set(key, { data, ts: Date.now() })
+    return NextResponse.json(data, { headers: { 'X-Data-Source': 'alcor' } })
+  } catch {
+    return NextResponse.json([], { headers: { 'X-Cache-Status': 'miss' } })
+  }
 }

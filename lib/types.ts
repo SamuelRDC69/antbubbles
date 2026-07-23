@@ -1,6 +1,7 @@
 export interface TokenPool {
   id:                number
   tvl:               number
+  volume24usd:       number
   counterpartId:     string   // e.g. "wax-eosio.token"
   counterpartSymbol: string   // e.g. "WAX"
   reversed:          boolean  // true when our token is tokenB (price chart needs &reverse=true)
@@ -57,6 +58,8 @@ export interface AlcorPool {
   volumeUSDWeek: number
   volumeUSDMonth: number
   tvlUSD: number
+  priceA?: number
+  priceB?: number
 }
 
 export interface TokenBubbleData {
@@ -67,6 +70,7 @@ export interface TokenBubbleData {
   system_price: number
   change24: number
   volume24usd: number
+  spotVolume24usd?: number
   high24: number
   low24: number
   bid: number
@@ -95,6 +99,7 @@ export interface TokenBubbleData {
   score?: number
   // Rank in the sorted token list (1 = highest score)
   rank?: number
+  metadata?: import('./tokenMetadata').TokenMetadata
   // Rank change vs 24h-ago snapshot: positive = moved up, negative = moved down
   rankChange?: number
   // Historical change % for TVL and volume (from rolling daily snapshots)

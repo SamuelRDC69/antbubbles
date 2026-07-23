@@ -11,6 +11,10 @@ import {
   HistogramSeries,
   IChartApi,
   ISeriesApi,
+  HistogramData,
+  LineData,
+  SeriesType,
+  Time,
 } from 'lightweight-charts'
 
 interface Candle {
@@ -141,13 +145,16 @@ const IND_META: { key: keyof Indicators; label: string; color: string; tip: stri
 ]
 
 type DrawMode = 'off' | 'hline'
+type ChartSeries = ISeriesApi<SeriesType>
+type LineSeriesApi = ISeriesApi<'Line'>
+type CandlestickSeriesApi = ISeriesApi<'Candlestick'>
 
 export default function TradingChart({ candles, isPositive, initialCandles = 90 }: Props) {
   const containerRef     = useRef<HTMLDivElement>(null)
   const legendRef        = useRef<HTMLDivElement>(null)
   const chartRef         = useRef<IChartApi | null>(null)
-  const candleSeriesRef  = useRef<ISeriesApi<any> | null>(null)
-  const priceLinesRef    = useRef<ReturnType<ISeriesApi<any>['createPriceLine']>[]>([])
+  const candleSeriesRef  = useRef<CandlestickSeriesApi | null>(null)
+  const priceLinesRef    = useRef<ReturnType<CandlestickSeriesApi['createPriceLine']>[]>([])
   const drawModeRef      = useRef<DrawMode>('off')
 
   const [ind, setInd] = useState<Indicators>({
@@ -210,16 +217,16 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
     // ── Pane 0: price ──────────────────────────────────────────────────────
     // Tracked series → legend key+color (used by crosshairMove to show live values)
     type SeriesEntry = { label: string; color: string; role: 'ohlc' | 'line' | 'bb' | 'vol' | 'rsi' | 'macd' | 'macdSig' }
-    const tracked = new Map<ISeriesApi<any>, SeriesEntry>()
+    const tracked = new Map<ChartSeries, SeriesEntry>()
 
     // Bollinger Bands
-    let bbUpper: ISeriesApi<any> | null = null
-    let bbMid:   ISeriesApi<any> | null = null
-    let bbLower: ISeriesApi<any> | null = null
+    let bbUpper: LineSeriesApi | null = null
+    let bbMid:   LineSeriesApi | null = null
+    let bbLower: LineSeriesApi | null = null
     if (ind.bb) {
       const bb = calcBB(closes)
       const toLine = (getter: (b: NonNullable<ReturnType<typeof calcBB>[0]>) => number) =>
-        bb.map((b, i) => b ? { time: sec[i] as any, value: getter(b) } : null).filter(Boolean) as any[]
+        bb.flatMap((b, i): LineData<Time>[] => b ? [{ time: sec[i] as Time, value: getter(b) }] : [])
       const bbOpts = { lineWidth: 1 as const, priceLineVisible: false, lastValueVisible: false }
       bbUpper = chart.addSeries(LineSeries, { ...bbOpts, color: '#3b82f650' }, 0)
       bbMid   = chart.addSeries(LineSeries, { ...bbOpts, color: '#3b82f670', lineStyle: LineStyle.Dashed }, 0)
@@ -241,7 +248,7 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
     for (const [active, period, col, label] of emaConfigs) {
       if (!active) continue
       const vals = calcEMA(closes, period)
-      const data = vals.map((v, i) => v !== null ? { time: sec[i] as any, value: v } : null).filter(Boolean) as any[]
+      const data = vals.flatMap((v, i): LineData<Time>[] => v !== null ? [{ time: sec[i] as Time, value: v }] : [])
       const s = chart.addSeries(LineSeries, { color: col, lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, 0)
       s.setData(data)
       tracked.set(s, { label, color: col, role: 'line' })
@@ -252,7 +259,7 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
       upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN,
     }, 0)
     candleSeries.setData(candles.map(c => ({
-      time: Math.floor(c.time / 1000) as any,
+      time: Math.floor(c.time / 1000) as Time,
       open: c.open, high: c.high, low: c.low, close: c.close,
     })))
     tracked.set(candleSeries, { label: 'OHLC', color: '', role: 'ohlc' })
@@ -278,10 +285,10 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
 
     // ── Sub-panes ──────────────────────────────────────────────────────────
     let paneIdx = 0
-    let volSeries: ISeriesApi<any> | null = null
-    let rsiSeries: ISeriesApi<any> | null = null
-    let macdLine:  ISeriesApi<any> | null = null
-    let macdSig:   ISeriesApi<any> | null = null
+    let volSeries: ISeriesApi<'Histogram'> | null = null
+    let rsiSeries: LineSeriesApi | null = null
+    let macdLine:  LineSeriesApi | null = null
+    let macdSig:   LineSeriesApi | null = null
 
     if (ind.volume) {
       paneIdx++
@@ -291,7 +298,7 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
       }, paneIdx)
       volSeries.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0 } })
       volSeries.setData(candles.map(c => ({
-        time: Math.floor(c.time / 1000) as any, value: c.volume,
+        time: Math.floor(c.time / 1000) as Time, value: c.volume,
         color: c.close >= c.open ? UP + '88' : DOWN + '88',
       })))
       tracked.set(volSeries, { label: 'Vol', color: '#6b7280', role: 'vol' })
@@ -301,7 +308,7 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
       paneIdx++
       chart.addPane()
       const rsiVals = calcRSI(closes)
-      const rsiData = rsiVals.map((v, i) => v !== null ? { time: sec[i] as any, value: v } : null).filter(Boolean) as any[]
+      const rsiData = rsiVals.flatMap((v, i): LineData<Time>[] => v !== null ? [{ time: sec[i] as Time, value: v }] : [])
       rsiSeries = chart.addSeries(LineSeries, {
         color: '#fb923c', lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
       }, paneIdx)
@@ -317,12 +324,11 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
       paneIdx++
       chart.addPane()
       const macdData = calcMACD(closes)
-      const mLine = macdData.map((d, i) => d?.macd   !== null && d !== null ? { time: sec[i] as any, value: d.macd!   } : null).filter(Boolean) as any[]
-      const sLine = macdData.map((d, i) => d?.signal !== null && d !== null ? { time: sec[i] as any, value: d.signal! } : null).filter(Boolean) as any[]
-      const hist  = macdData.map((d, i) => d?.histogram !== null && d !== null
-        ? { time: sec[i] as any, value: d.histogram!, color: d.histogram! >= 0 ? UP + '99' : DOWN + '99' }
-        : null
-      ).filter(Boolean) as any[]
+      const mLine = macdData.flatMap((d, i): LineData<Time>[] => d?.macd !== null && d ? [{ time: sec[i] as Time, value: d.macd! }] : [])
+      const sLine = macdData.flatMap((d, i): LineData<Time>[] => d?.signal !== null && d ? [{ time: sec[i] as Time, value: d.signal! }] : [])
+      const hist = macdData.flatMap((d, i): HistogramData<Time>[] => d?.histogram !== null && d
+        ? [{ time: sec[i] as Time, value: d.histogram!, color: d.histogram! >= 0 ? UP + '99' : DOWN + '99' }]
+        : [])
 
       macdLine = chart.addSeries(LineSeries, { color: '#60a5fa', lineWidth: 2, priceLineVisible: false, lastValueVisible: false }, paneIdx)
       macdLine.priceScale().applyOptions({ scaleMargins: { top: 0.15, bottom: 0.15 } })
@@ -338,7 +344,7 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
     if (candles.length > initialCandles) {
       const last  = Math.floor(candles[candles.length - 1].time               / 1000)
       const first = Math.floor(candles[candles.length - initialCandles].time  / 1000)
-      chart.timeScale().setVisibleRange({ from: first as any, to: last as any })
+      chart.timeScale().setVisibleRange({ from: first as Time, to: last as Time })
     } else {
       chart.timeScale().fitContent()
     }
@@ -354,10 +360,10 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
       }
 
       // Resolve OHLCV from candle series
-      const ohlcData = params.seriesData.get(candleSeries) as any
-      if (!ohlcData) { legend.style.display = 'none'; return }
+      const ohlcData = params.seriesData.get(candleSeries)
+      if (!ohlcData || !('open' in ohlcData)) { legend.style.display = 'none'; return }
 
-      const tSec = params.time as number
+      const tSec = Number(params.time)
       const d    = new Date(tSec * 1000)
       const timeStr = d.toLocaleString('en-US', {
         month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
@@ -383,9 +389,9 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
       const indParts: string[] = []
       for (const [series, meta] of tracked) {
         if (meta.role === 'ohlc') continue
-        const d2 = params.seriesData.get(series) as any
-        if (!d2 || d2.value == null) continue
-        const v = d2.value as number
+        const d2 = params.seriesData.get(series)
+        if (!d2 || !('value' in d2) || d2.value == null) continue
+        const v = d2.value
         const valStr = meta.role === 'vol'   ? fmtVol(v)
                      : meta.role === 'rsi'   ? v.toFixed(1)
                      : fmtLegendPrice(v)

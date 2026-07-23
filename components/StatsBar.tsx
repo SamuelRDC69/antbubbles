@@ -13,7 +13,12 @@ export default function StatsBar({ tokens }: Props) {
     if (tokens.length === 0) return null
     const gainers   = tokens.filter(t => t.change24 > 0).length
     const losers    = tokens.filter(t => t.change24 < 0).length
-    const totalVol  = tokens.reduce((s, t) => s + t.volume24usd, 0)
+    const poolVolumes = new Map<number, number>()
+    for (const token of tokens) for (const pool of token.pools ?? []) {
+      poolVolumes.set(pool.id, pool.volume24usd)
+    }
+    const totalVol = tokens.reduce((s, token) => s + (token.spotVolume24usd ?? 0), 0)
+      + [...poolVolumes.values()].reduce((s, volume) => s + volume, 0)
     const topGainer = tokens.reduce((best, t) => t.change24 > best.change24 ? t : best, tokens[0])
     const topLoser  = tokens.reduce((best, t) => t.change24 < best.change24 ? t : best, tokens[0])
     return { gainers, losers, totalVol, topGainer, topLoser }

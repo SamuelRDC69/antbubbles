@@ -4,12 +4,14 @@
 
 import { CHAINS } from './chains'
 import { mergeTokenData } from './alcor'
+import { parseAlcorPayloads } from './alcorSchemas'
+import { getTokenMetadata } from './tokenMetadata'
 import { alcorLogoManifestKey, loadAlcorLogoManifest } from './tokenLogos'
 import { TokenBubbleData } from './types'
-import { AlcorToken, AlcorTicker, AlcorPool } from './types'
 
 const TTL_MS = 30_000
 const TTL_S  = 30
+const ALCOR_HEADERS = { 'User-Agent': 'Mozilla/5.0' }
 
 // ── Rank snapshot ─────────────────────────────────────────────────────────────
 // Saved once per 24 h per chain. Compared against current ranks to derive
@@ -110,10 +112,10 @@ export async function getTokensForChain(chainId: string): Promise<{
 
   try {
     const [tokensRes, tickersRes, poolsRes] = await Promise.all([
-      fetch(`${base}/tokens`,     { signal: AbortSignal.timeout(15_000), next: { revalidate: TTL_S } }),
-      fetch(`${base}/tickers`,    { signal: AbortSignal.timeout(15_000), next: { revalidate: TTL_S } }),
+      fetch(`${base}/tokens`,     { signal: AbortSignal.timeout(15_000), headers: ALCOR_HEADERS, next: { revalidate: TTL_S } }),
+      fetch(`${base}/tickers`,    { signal: AbortSignal.timeout(15_000), headers: ALCOR_HEADERS, next: { revalidate: TTL_S } }),
       // pools response can be >2 MB so Vercel Data Cache can't store it — rely on L1 Map only
-      fetch(`${base}/swap/pools`, { signal: AbortSignal.timeout(15_000) }),
+      fetch(`${base}/swap/pools`, { signal: AbortSignal.timeout(45_000), headers: ALCOR_HEADERS }),
     ])
 
     if (!tokensRes.ok || !tickersRes.ok || !poolsRes.ok) {
@@ -122,16 +124,18 @@ export async function getTokensForChain(chainId: string): Promise<{
       return { data: [], status: 502 }
     }
 
-    const [tokens, tickers, pools]: [AlcorToken[], AlcorTicker[], AlcorPool[]] = await Promise.all([
+    const [rawTokens, rawTickers, rawPools] = await Promise.all([
       tokensRes.json(),
       tickersRes.json(),
       poolsRes.json(),
     ])
+    const { tokens, tickers, pools } = parseAlcorPayloads(rawTokens, rawTickers, rawPools)
 
     const logoManifest = await loadAlcorLogoManifest()
     const merged = mergeTokenData(tokens, tickers, pools, chain).map((token) => ({
       ...token,
       logoUrl: logoManifest.get(alcorLogoManifestKey(chain.id, token.symbol, token.contract)) ?? token.logoUrl,
+      metadata: getTokenMetadata(chain.id, token.symbol, token.contract),
     }))
     const withRanks = merged.map((t, i) => ({ ...t, rank: i + 1 }))
 

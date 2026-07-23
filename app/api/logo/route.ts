@@ -1,8 +1,12 @@
-export const runtime = 'edge'
+export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { CHAINS } from '@/lib/chains'
 import { resolveAlcorGithubLogoUrl } from '@/lib/tokenLogos'
+import fs from 'node:fs'
+import path from 'node:path'
+
+const LOGO_PUBLIC_DIR = path.join(process.cwd(), 'public', 'token-logos')
 
 function fallbackSvg(symbol: string): string {
   const label = symbol.replace(/[^a-zA-Z0-9]/g, '').slice(0, 5).toUpperCase() || '?'
@@ -24,6 +28,21 @@ function fallbackSvg(symbol: string): string {
   </svg>`
 }
 
+function localLogoPath(chainId: string, tokenId: string): string | null {
+  if (!CHAINS[chainId]) return null
+  const dash = tokenId.indexOf('-')
+  if (dash <= 0) return null
+  const symbol = tokenId.slice(0, dash).trim().toLowerCase()
+  const contract = tokenId.slice(dash + 1).trim().toLowerCase()
+  if (!/^[a-z0-9.]+$/.test(symbol) || !/^[a-z0-9.]+$/.test(contract)) return null
+  const dir = path.join(LOGO_PUBLIC_DIR, chainId)
+  for (const ext of ['avif', 'png', 'webp', 'svg']) {
+    const p = path.join(dir, `${symbol}_${contract}.${ext}`)
+    if (fs.existsSync(p)) return p
+  }
+  return null
+}
+
 // Server-side logo proxy — avoids CORS and browser rate limits on Alcor's CDN
 export async function GET(req: NextRequest) {
   const tokenId = req.nextUrl.searchParams.get('id')
@@ -31,6 +50,20 @@ export async function GET(req: NextRequest) {
 
   if (!tokenId) {
     return new NextResponse('Missing id', { status: 400 })
+  }
+
+  const local = localLogoPath(chain, tokenId)
+  if (local) {
+    const ext = path.extname(local).slice(1) || 'png'
+    const ct = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`
+    const buf = fs.readFileSync(local)
+    return new NextResponse(buf, {
+      status: 200,
+      headers: {
+        'Content-Type': ct,
+        'Cache-Control': 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800',
+      },
+    })
   }
 
   const dash = tokenId.indexOf('-')
@@ -42,7 +75,6 @@ export async function GET(req: NextRequest) {
       const githubUrl = await resolveAlcorGithubLogoUrl(chainConfig, { symbol, contract })
       const logo = await fetch(githubUrl, {
         signal: AbortSignal.timeout(5_000),
-        next: { revalidate: 24 * 60 * 60 },
       })
       if (logo.ok) {
         return new NextResponse(logo.body, {
@@ -63,7 +95,6 @@ export async function GET(req: NextRequest) {
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(8_000),
-      next: { revalidate: 86400 },
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
     })
 
@@ -76,9 +107,6 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         'Content-Type': contentType,
-        // s-maxage tells Vercel's CDN to cache at the edge — without it every
-        // request hits the function even though max-age is set. Logos never
-        // change for a given token, so a 7-day edge cache is safe.
         'Cache-Control': 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800',
       },
     })

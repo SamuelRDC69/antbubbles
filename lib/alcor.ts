@@ -1,4 +1,5 @@
 import { AlcorToken, AlcorTicker, AlcorPool, TokenBubbleData, TokenPool, ChainConfig, TokenSupplyInfo } from './types'
+import { getLocalLogoUrl } from './localTokenLogos'
 
 // Single call — server merges tokens/tickers/pools and returns processed data.
 export async function fetchMergedTokens(chain: ChainConfig): Promise<TokenBubbleData[]> {
@@ -31,7 +32,7 @@ export async function fetchSupplies(
 }
 
 export function getLogoUrl(chain: ChainConfig, tokenId: string): string {
-  return `/api/logo?id=${encodeURIComponent(tokenId)}&chain=${chain.id}`
+  return getLocalLogoUrl(chain.id, tokenId) ?? `/api/logo?id=${encodeURIComponent(tokenId)}&chain=${chain.id}`
 }
 
 function canonicalTokenKey(token: Pick<AlcorToken, 'contract' | 'symbol'>): string {
@@ -69,6 +70,7 @@ export function mergeTokenData(
   chain: ChainConfig,
 ): TokenBubbleData[] {
   const systemTokenId = `${chain.systemToken.toLowerCase()}-${chain.systemContract}`
+  const systemUsdPrice = tokens.find(token => token.id === systemTokenId)?.usd_price ?? 0
 
   // Ticker map: base currency → ticker (vs system token)
   const tickerMap = new Map<string, AlcorTicker>()
@@ -87,6 +89,7 @@ export function mergeTokenData(
     vol30dusd: number
     changes:   Array<{ change: number; tvl: number; volume24: number }>
     weekChanges: Array<{ change: number; tvl: number; volume24: number }>
+    swapPrices: Array<{ price: number; tvl: number }>
     pools:     TokenPool[]
   }
   const poolMap = new Map<string, PoolAgg>()
@@ -99,7 +102,7 @@ export function mergeTokenData(
       const tvl = pool.tvlUSD || 0
       const agg = poolMap.get(side.id) ?? {
         totalTvl: 0, wChange24: 0, wChange7d: 0,
-        vol24usd: 0, vol7dusd: 0, vol30dusd: 0, changes: [], weekChanges: [], pools: [],
+        vol24usd: 0, vol7dusd: 0, vol30dusd: 0, changes: [], weekChanges: [], swapPrices: [], pools: [],
       }
       agg.totalTvl  += tvl
       agg.wChange24 += (pool.change24    || 0) * tvl
@@ -109,10 +112,17 @@ export function mergeTokenData(
       agg.vol30dusd += pool.volumeUSDMonth || 0
       agg.changes.push({ change: pool.change24 || 0, tvl, volume24: pool.volumeUSD24 || 0 })
       agg.weekChanges.push({ change: pool.changeWeek || 0, tvl, volume24: pool.volumeUSDWeek || 0 })
+      if (counterpart.id === systemTokenId && systemUsdPrice > 0) {
+        const priceInSystem = side === pool.tokenA ? pool.priceA : pool.priceB
+        if (Number.isFinite(priceInSystem) && priceInSystem! > 0) {
+          agg.swapPrices.push({ price: priceInSystem! * systemUsdPrice, tvl })
+        }
+      }
       if (tvl > 0) {
         agg.pools.push({
           id:                pool.id,
           tvl,
+          volume24usd:       pool.volumeUSD24 || 0,
           counterpartId:     counterpart.id,
           counterpartSymbol: counterpart.symbol,
           reversed:          side === pool.tokenB, // tokenB needs reverse=true to show correct price direction
@@ -137,11 +147,16 @@ export function mergeTokenData(
     const ticker = tickerMap.get(token.id)
     const agg    = poolMap.get(token.id)
 
-    // WAX/USD price for converting spot volume
-    const waxUsdPrice  = token.system_price > 0 ? token.usd_price / token.system_price : 0
+    const swapUsdPrice = agg?.swapPrices.length
+      ? agg.swapPrices.reduce((sum, item) => sum + item.price * Math.max(item.tvl, 1), 0)
+        / agg.swapPrices.reduce((sum, item) => sum + Math.max(item.tvl, 1), 0)
+      : 0
+    const usdPrice = swapUsdPrice > 0 ? swapUsdPrice : token.usd_price
+    const systemPrice = systemUsdPrice > 0 ? usdPrice / systemUsdPrice : token.system_price
+    const waxUsdPrice  = systemUsdPrice || (token.system_price > 0 ? token.usd_price / token.system_price : 0)
     const vol24spot    = ticker && waxUsdPrice > 0 ? ticker.target_volume * waxUsdPrice : 0
     const vol24pool    = agg?.vol24usd ?? 0
-    const volume24usd  = vol24spot + vol24pool   // combined spot + AMM volume
+    const volume24usd  = vol24pool || vol24spot
 
     const tvlUsd = agg && agg.totalTvl > 0 ? agg.totalTvl : undefined
 
@@ -165,10 +180,11 @@ export function mergeTokenData(
       id:           token.id,
       symbol:       token.symbol,
       contract:     token.contract,
-      usd_price:    token.usd_price,
-      system_price: token.system_price,
+      usd_price:    usdPrice,
+      system_price: systemPrice,
       change24,
       volume24usd,
+      spotVolume24usd: vol24spot,
       high24:       ticker?.high24 ?? 0,
       low24:        ticker?.low24  ?? 0,
       bid:          ticker?.bid    ?? 0,
