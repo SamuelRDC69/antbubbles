@@ -181,6 +181,15 @@ function overlayPoint(position: AdOverlayPosition, radius: number) {
   }
 }
 
+function domOverlayStyle(position: AdOverlayPosition): React.CSSProperties {
+  const [vertical, horizontal = 'center'] = position.split('-')
+  return {
+    left: horizontal === 'left' ? '29%' : horizontal === 'right' ? '71%' : '50%',
+    top: vertical === 'top' ? '29%' : vertical === 'bottom' ? '71%' : '50%',
+    transform: 'translate(-50%, -50%)',
+  }
+}
+
 // Paint bubble content into a ctx whose origin is already at the bubble centre.
 // Radius is always integer here (the offscreen canvas is sized to match it).
 //
@@ -366,8 +375,6 @@ function drawBubble(
   // Composite the pre-rendered bubble bitmap at the float simulation position.
   // drawImage uses bilinear interpolation so the whole image shifts smoothly —
   // no per-frame glyph rasterisation, no shimmering.
-  // Animated creatives need a fresh offscreen frame; only the sponsored bubble takes this path.
-  if (node._isMarketing && node.adImageMode === 'background') offscreenCache.delete(node.id)
   const bc   = getOrCreateBubbleCanvas(node, img, adLogo, displayMode, dpr, isMobile, offscreenCache)
   const size = 2 * radius + 6
   ctx.drawImage(bc, x - radius - 3, y - radius - 3, size, size)
@@ -414,6 +421,7 @@ export default function BubbleChart({
   const dimRef        = useRef({ width: 0, height: 0 })
   const prevDimRef    = useRef({ width: 0, height: 0 })
   const onReadyFiredRef = useRef(false)
+  const marketingOverlayRef = useRef<HTMLAnchorElement>(null)
   const [assetsReady, setAssetsReady] = useState(false)
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
   const [tooltip, setTooltip]       = useState<TooltipState | null>(null)
@@ -655,12 +663,23 @@ export default function BubbleChart({
       const q        = searchQuery.toLowerCase()
       const cache    = offscreenCacheRef.current
       const isMobile = width < 600
+      const marketingOverlay = marketingOverlayRef.current
+      if (marketingOverlay) marketingOverlay.style.display = 'none'
 
       for (const node of nodes) {
         const isHovered  = hoveredRef.current === node.id
         const isDragging = dragRef.current    === node
         const isMatch    = node._isMarketing || (q.length > 1 && node.symbol.toLowerCase().includes(q))
         const isDimmed   = !node._isMarketing && q.length > 1 && !isMatch
+        if (node._isMarketing && marketingOverlay) {
+          const radius = node.radius
+          marketingOverlay.style.display = 'block'
+          marketingOverlay.style.width = `${radius * 2}px`
+          marketingOverlay.style.height = `${radius * 2}px`
+          marketingOverlay.style.transform = `translate3d(${(node.x ?? 0) - radius}px, ${(node.y ?? 0) - radius}px, 0)`
+          marketingOverlay.style.setProperty('--ad-radius', `${radius}px`)
+          if (node.adImageMode === 'background') continue
+        }
         drawBubble(ctx, node, imagesRef.current.get(node.id), imagesRef.current.get(`${node.id}:logo`), isHovered, isDragging, isDimmed, displayMode, cache, dpr, isMobile)
       }
 
@@ -870,11 +889,56 @@ export default function BubbleChart({
         style={{ display: 'block' }}
       />
 
-      {ad ? (
-        <a href={ad.linkUrl} target="_blank" rel="noopener noreferrer sponsored" className="sr-only">
-          Sponsored: {ad.text}
+      {ad && (
+        <a
+          ref={marketingOverlayRef}
+          href={ad.linkUrl}
+          target="_blank"
+          rel="noopener noreferrer sponsored"
+          draggable={false}
+          aria-label={`Sponsored: ${ad.text}`}
+          className={`absolute left-0 top-0 z-10 select-none overflow-hidden rounded-full will-change-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ffd700] ${
+            ad.imageMode === 'background' ? 'border-[3px] border-[#ffd700] bg-[#160d00]' : ''
+          }`}
+          style={{ display: 'none' }}
+        >
+          {ad.imageMode === 'background' && (
+            <>
+              {/* Native img preserves animated GIF/WebP frames; canvas drawImage is specified to use frame one. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={ad.imageUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover" />
+              <span className="absolute inset-0 bg-black/20" />
+              {ad.logoUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={ad.logoUrl}
+                  alt=""
+                  draggable={false}
+                  className="absolute h-[42%] w-[42%] rounded-full object-cover"
+                  style={domOverlayStyle(ad.logoPosition ?? 'top-center')}
+                />
+              )}
+              <span
+                className="absolute max-w-[76%] text-center font-bold leading-none [text-shadow:0_1px_4px_rgba(0,0,0,0.95)]"
+                style={{
+                  ...domOverlayStyle(ad.textPosition ?? 'center'),
+                  color: ad.textColor ?? '#ffe066',
+                  fontFamily: AD_FONTS[ad.font ?? 'sans'].canvas,
+                  fontSize: 'max(7px, calc(var(--ad-radius) * 0.18))',
+                }}
+              >
+                {ad.text}
+              </span>
+              <span className="absolute bottom-[7%] left-1/2 -translate-x-1/2 font-semibold text-[#ffd700]"
+                style={{ fontSize: 'max(6px, calc(var(--ad-radius) * 0.11))' }}>
+                SPONSORED
+              </span>
+            </>
+          )}
+          <span className="sr-only">Open sponsored link in a new tab</span>
         </a>
-      ) : (
+      )}
+      {!ad && (
         <button onClick={onAdvertise} className="sr-only">Advertise on AntBubbles</button>
       )}
 
