@@ -1406,11 +1406,9 @@ export default function TokenModal({ token, chain, onClose }: Props) {
                   <LiquidityDepth
                     poolId={depthPool?.id ?? 0}
                     chain={chain.id}
-                    reversed={depthPool?.reversed ?? false}
                     currentUsdPrice={token.usd_price}
                     tokenSymbol={token.symbol}
                     tokenId={token.id}
-                    counterpartSymbol={depthMode === 'combined' ? 'ALL LPs' : depthPool?.counterpartSymbol ?? ''}
                     mode={depthMode === 'combined' ? 'combined' : 'single'}
                     pools={pools}
                   />
@@ -1452,7 +1450,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
           <div className="px-5 py-2.5 border-t border-white/[0.06] flex items-center justify-between">
             <span className="text-[10px] text-gray-700">
               {chartView === 'depth'
-                ? 'liquidity distribution · current snapshot · '
+                ? 'SDK swap simulation · current snapshot · '
                 : chartView === 'candles'
                 ? `${chartRange} candles · full history · `
                 : `${chartRange} window · `}
