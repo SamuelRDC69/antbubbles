@@ -1,7 +1,7 @@
 'use client'
 
 import { TokenBubbleData, TokenPool, ChainConfig } from '@/lib/types'
-import { formatPrice, formatPriceParts, formatChange, formatVolume, ringColor } from '@/lib/bubbleUtils'
+import { formatPrice, formatPriceParts, formatTokenPrice, formatChange, formatVolume, ringColor } from '@/lib/bubbleUtils'
 import { getChart, setChart } from '@/lib/chartCache'
 import { getLogoUrl } from '@/lib/alcor'
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
@@ -1130,7 +1130,7 @@ export default function TokenModal({ token, chain, onClose }: Props) {
               }}>{formatChange(token.change24)}</span>
             </div>
             <div className="text-gray-600 text-[10px] mt-0.5">
-              {token.system_price.toFixed(8)} {chain.systemToken}
+              {formatTokenPrice(token.system_price)} {chain.systemToken}
             </div>
           </div>
 

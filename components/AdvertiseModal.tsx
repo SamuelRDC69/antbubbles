@@ -551,6 +551,12 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                   className="w-full rounded-xl bg-[#ffd700] py-3 text-sm font-bold text-black disabled:opacity-40">
                   {busy ? 'Waiting…' : pendingPayment ? 'Retry payment verification' : actor ? `Pay with ${submission.symbol}` : 'Connect wallet'}
                 </button>
+                {!pendingPayment && (
+                  <button onClick={startOver} disabled={busy}
+                    className="w-full rounded-xl border border-white/15 py-3 text-sm font-semibold text-white disabled:opacity-40">
+                    Back to edit
+                  </button>
+                )}
               </>
             )}
             {submission.status === 'pending' && (

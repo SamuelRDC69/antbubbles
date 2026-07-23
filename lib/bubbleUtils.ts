@@ -277,19 +277,26 @@ export function formatMetricValue(token: TokenBubbleData, mode: DisplayMode): st
   }
 }
 
-export function formatPrice(p: number): string {
-  if (p === 0) return '$0'
-  if (p >= 1_000)  return `$${p.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-  if (p >= 1)      return `$${p.toFixed(2)}`
-  if (p >= 0.1)    return `$${p.toFixed(3)}`
-  if (p >= 0.01)   return `$${p.toFixed(4)}`
+export function formatTokenPrice(p: number): string {
+  if (p === 0) return '0'
+  if (p >= 1_000) return p.toLocaleString('en-US', { maximumFractionDigits: 0 })
+  if (p >= 1)     return p.toFixed(2)
+  if (p >= 0.1)   return p.toFixed(3)
+  if (p >= 0.01)  return p.toFixed(4)
 
-  // Compact leading zeroes: 0.0000000001109 → $0.0₉1109.
-  const [mantissa, exponentText] = p.toExponential(3).split('e')
+  // Compact leading zeroes while retaining up to six significant digits:
+  // 0.0000000001109 → 0.0₉1109
+  // 0.000000028734  → 0.0₇28734
+  const [mantissa, exponentText] = p.toExponential(5).split('e')
   const exponent = Number(exponentText)
   const zeroes = -exponent - 1
-  const digits = mantissa.replace('.', '')
-  return `$0.0${String(zeroes).replace(/\d/g, digit => '₀₁₂₃₄₅₆₇₈₉'[Number(digit)])}${digits}`
+  const digits = mantissa.replace('.', '').replace(/0+$/, '')
+  const subscriptZeroes = String(zeroes).replace(/\d/g, digit => '₀₁₂₃₄₅₆₇₈₉'[Number(digit)])
+  return `0.0${subscriptZeroes}${digits}`
+}
+
+export function formatPrice(p: number): string {
+  return `$${formatTokenPrice(p)}`
 }
 
 // Splits a sub-cent price into [dimmed-prefix, bright-digits] for two-tone display.
