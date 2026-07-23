@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { forceSimulation } from 'd3-force'
 import type { Simulation } from 'd3-force'
 import { TokenBubbleData, DisplayMode } from '@/lib/types'
+import { AD_FONTS, AdFont, AdImageMode, MarketingAd } from '@/lib/ads'
 import {
   computeRadii,
   bubbleFillColorForMode,
@@ -23,6 +24,8 @@ interface Props {
   onSelectToken:  (token: TokenBubbleData) => void
   onHoverToken?:  (token: TokenBubbleData | null) => void
   onReady?:       () => void
+  ad?:            MarketingAd | null
+  onAdvertise:    () => void
 }
 
 interface SimNode extends TokenBubbleData {
@@ -37,6 +40,13 @@ interface SimNode extends TokenBubbleData {
   // Per-bubble drift direction (radians) — held for ~100 ticks, then randomly reset
   _direction?:  number
   isColliding?: boolean
+  _isMarketing?: boolean
+  _isPlaceholder?: boolean
+  adLinkUrl?:    string
+  adText?:       string
+  adImageMode?:  AdImageMode
+  adFont?:       AdFont
+  adTextColor?:  string
 }
 
 interface TooltipState {
@@ -78,6 +88,64 @@ function loadImage(url: string): Promise<HTMLImageElement | null> {
 //   interpolation — the whole image shifts as a unit, no per-glyph rasterisation.
 
 type BubbleCanvasEntry = { key: string; canvas: HTMLCanvasElement }
+const MARKETING_ID = '__marketing__'
+
+function paintMarketingBubble(
+  ctx: CanvasRenderingContext2D,
+  node: SimNode,
+  img: HTMLImageElement | null | undefined,
+) {
+  const r = node.radius
+  const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, r)
+  gradient.addColorStop(0, '#523000')
+  gradient.addColorStop(0.78, '#160d00')
+  gradient.addColorStop(1, '#ffd700')
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.fillStyle = gradient
+  ctx.fill()
+
+  const isBackground = node.adImageMode === 'background' && !!img
+  if (isBackground) {
+    const scale = Math.max(2 * r / img.naturalWidth, 2 * r / img.naturalHeight)
+    const width = img.naturalWidth * scale
+    const height = img.naturalHeight * scale
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(0, 0, r, 0, Math.PI * 2)
+    ctx.clip()
+    ctx.drawImage(img, -width / 2, -height / 2, width, height)
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'
+    ctx.fillRect(-r, -r, r * 2, r * 2)
+    ctx.restore()
+  }
+
+  const text = node.adText ?? ''
+  const fontSize = Math.max(7, Math.round(r * 0.18))
+  const logoSize = img && !isBackground ? Math.round(r * 0.55) : 0
+  const lines = text.length > 14 ? [text.slice(0, 13), `${text.slice(13, 25)}…`] : [text]
+  const contentHeight = logoSize + lines.length * fontSize + (logoSize ? 4 : 0)
+  let y = -contentHeight / 2
+
+  if (img && logoSize) {
+    ctx.drawImage(img, -logoSize / 2, y, logoSize, logoSize)
+    y += logoSize + 4
+  }
+  ctx.fillStyle = node.adTextColor ?? '#ffe066'
+  ctx.font = `700 ${fontSize}px ${AD_FONTS[node.adFont ?? 'sans'].canvas}`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'top'
+  ctx.shadowColor = 'rgba(0,0,0,0.9)'
+  ctx.shadowBlur = isBackground ? 4 : 0
+  for (const line of lines) {
+    ctx.fillText(line, 0, y)
+    y += fontSize
+  }
+  ctx.shadowBlur = 0
+  ctx.fillStyle = '#ffd700'
+  ctx.font = `600 ${Math.max(6, Math.round(r * 0.11))}px Inter, system-ui, sans-serif`
+  ctx.fillText(node._isPlaceholder ? 'ADVERTISE' : 'SPONSORED', 0, r * 0.62)
+}
 
 // Paint bubble content into a ctx whose origin is already at the bubble centre.
 // Radius is always integer here (the offscreen canvas is sized to match it).
@@ -93,6 +161,11 @@ function paintBubbleContent(
   displayMode: DisplayMode,
   isMobile:    boolean,
 ) {
+  if (node._isMarketing) {
+    paintMarketingBubble(ctx, node, img)
+    return
+  }
+
   const { symbol, radius: r } = node   // r is always integer
   const fill = bubbleFillColorForMode(node, displayMode)
   const ring = ringColorForMode(node, displayMode)
@@ -211,9 +284,9 @@ function getOrCreateBubbleCanvas(
   isMobile:    boolean,
   cache:       Map<string, BubbleCanvasEntry>,
 ): HTMLCanvasElement {
-  const fill  = bubbleFillColorForMode(node, displayMode)
-  const val   = formatMetricValue(node, displayMode)
-  const key   = `${node.radius}_${fill}_${val}_${img ? 1 : 0}_${dpr}_${isMobile ? 'm' : 'd'}`
+  const fill  = node._isMarketing ? 'sponsored' : bubbleFillColorForMode(node, displayMode)
+  const val   = node._isMarketing ? node.adText : formatMetricValue(node, displayMode)
+  const key   = `${node.radius}_${fill}_${val}_${node._isPlaceholder ? 1 : 0}_${img ? 1 : 0}_${node.adImageMode}_${node.adFont}_${node.adTextColor}_${dpr}_${isMobile ? 'm' : 'd'}`
 
   const entry = cache.get(node.id)
   if (entry && entry.key === key) return entry.canvas
@@ -265,7 +338,7 @@ function drawBubble(
     const drawR = isDragging ? radius : radius * 1.07
     ctx.beginPath()
     ctx.arc(x, y, drawR + 3, 0, Math.PI * 2)
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+    ctx.strokeStyle = node._isMarketing ? '#ffd700' : 'rgba(255,255,255,0.85)'
     ctx.lineWidth   = 2
     ctx.stroke()
   }
@@ -274,7 +347,16 @@ function drawBubble(
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function BubbleChart({ tokens, displayMode, searchQuery, onSelectToken, onHoverToken, onReady }: Props) {
+export default function BubbleChart({
+  tokens,
+  displayMode,
+  searchQuery,
+  onSelectToken,
+  onHoverToken,
+  onReady,
+  ad,
+  onAdvertise,
+}: Props) {
   const canvasRef    = useRef<HTMLCanvasElement>(null)
   const simRef       = useRef<Simulation<SimNode, undefined> | null>(null)
   const nodesRef     = useRef<SimNode[]>([])
@@ -325,6 +407,18 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       }
     }
   }, [tokens])
+
+  useEffect(() => {
+    if (!ad?.imageUrl) {
+      imagesRef.current.delete(MARKETING_ID)
+      offscreenCacheRef.current.delete(MARKETING_ID)
+      return
+    }
+    loadImage(ad.imageUrl).then(img => {
+      imagesRef.current.set(MARKETING_ID, img)
+      offscreenCacheRef.current.delete(MARKETING_ID)
+    })
+  }, [ad?.imageUrl])
 
   // ── Simulation init / update ───────────────────────────────────────────────
   useEffect(() => {
@@ -430,6 +524,61 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
     prevDimRef.current = { width, height }
   }, [tokens, displayMode, dimensions])
 
+  useEffect(() => {
+    if (dimensions.width === 0 || tokens.length === 0) return
+    const existingIndex = nodesRef.current.findIndex(node => node._isMarketing)
+
+    const radii = computeRadii(tokens, displayMode, dimensions.width, dimensions.height)
+    const radius = Math.max(...radii.values())
+    const text = ad?.text ?? 'Advertise here'
+    if (existingIndex >= 0) {
+      const node = nodesRef.current[existingIndex]
+      node.targetRadius = radius
+      node.symbol = text
+      node.adText = text
+      node.adLinkUrl = ad?.linkUrl
+      node.adImageMode = ad?.imageMode
+      node.adFont = ad?.font
+      node.adTextColor = ad?.textColor
+      node._isPlaceholder = !ad
+      offscreenCacheRef.current.delete(MARKETING_ID)
+      return
+    }
+
+    nodesRef.current.push({
+      id: MARKETING_ID,
+      symbol: text,
+      contract: '',
+      usd_price: 0,
+      system_price: 0,
+      change24: 0,
+      volume24usd: 0,
+      high24: 0,
+      low24: 0,
+      bid: 0,
+      ask: 0,
+      market_id: null,
+      ticker_id: null,
+      logoUrl: ad?.imageUrl ?? '',
+      x: dimensions.width / 2,
+      y: dimensions.height / 2,
+      vx: 0,
+      vy: 0,
+      fx: null,
+      fy: null,
+      radius,
+      targetRadius: radius,
+      _isMarketing: true,
+      _isPlaceholder: !ad,
+      adText: text,
+      adLinkUrl: ad?.linkUrl,
+      adImageMode: ad?.imageMode,
+      adFont: ad?.font,
+      adTextColor: ad?.textColor,
+    })
+    simRef.current?.nodes(nodesRef.current).alpha(0.8)
+  }, [ad, dimensions, tokens, displayMode])
+
   // ── Canvas render loop ─────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current
@@ -468,8 +617,8 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       for (const node of nodes) {
         const isHovered  = hoveredRef.current === node.id
         const isDragging = dragRef.current    === node
-        const isMatch    = q.length > 1 && node.symbol.toLowerCase().includes(q)
-        const isDimmed   = q.length > 1 && !isMatch
+        const isMatch    = node._isMarketing || (q.length > 1 && node.symbol.toLowerCase().includes(q))
+        const isDimmed   = !node._isMarketing && q.length > 1 && !isMatch
         drawBubble(ctx, node, imagesRef.current.get(node.id), isHovered, isDragging, isDimmed, displayMode, cache, dpr, isMobile)
       }
 
@@ -501,6 +650,15 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
     return null
   }, [])
 
+  const activateNode = useCallback((node: SimNode) => {
+    if (node._isMarketing) {
+      if (node.adLinkUrl) window.open(node.adLinkUrl, '_blank', 'noopener,noreferrer')
+      else onAdvertise()
+      return
+    }
+    onSelectToken(node)
+  }, [onAdvertise, onSelectToken])
+
   // ── Pointer events ─────────────────────────────────────────────────────────
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect()
@@ -530,11 +688,11 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
 
     // Emit hover change for prefetch — only fire when the hovered token actually changes
     if ((node?.id ?? null) !== hoveredRef.current) {
-      onHoverToken?.(node ?? null)
+      onHoverToken?.(node && !node._isMarketing ? node : null)
     }
     hoveredRef.current = node?.id ?? null
 
-    if (node) {
+    if (node && !node._isMarketing) {
       setTooltip({ x: mx, y: my, token: node })
     } else {
       setTooltip(null)
@@ -559,7 +717,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
   const handleMouseUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (dragRef.current) {
       const wasDrag = hasDraggedRef.current
-      if (!wasDrag) onSelectToken(dragRef.current)
+      if (!wasDrag) activateNode(dragRef.current)
       dragRef.current        = null
       setDragging(false)
       mouseTargetRef.current = null
@@ -568,7 +726,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       simRef.current?.alpha(0.3)
     }
     canvasRef.current!.style.cursor = 'default'
-  }, [onSelectToken])
+  }, [activateNode])
 
   const handleMouseLeave = useCallback(() => {
     dragRef.current        = null
@@ -632,7 +790,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
     function onTouchEnd(e: TouchEvent) {
       if (dragRef.current) {
         const wasDrag = hasDraggedRef.current
-        if (!wasDrag) onSelectToken(dragRef.current)
+        if (!wasDrag) activateNode(dragRef.current)
         dragRef.current        = null
         setDragging(false)
         mouseTargetRef.current = null
@@ -656,7 +814,7 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
       canvas.removeEventListener('touchend',    onTouchEnd)
       canvas.removeEventListener('touchcancel', onTouchEnd)
     }
-  }, [getNodeAt, onSelectToken])
+  }, [activateNode, getNodeAt])
 
   return (
     <div ref={containerRef} className="w-full h-full relative overflow-hidden bg-black">
@@ -669,6 +827,14 @@ export default function BubbleChart({ tokens, displayMode, searchQuery, onSelect
         onMouseLeave={handleMouseLeave}
         style={{ display: 'block' }}
       />
+
+      {ad ? (
+        <a href={ad.linkUrl} target="_blank" rel="noopener noreferrer sponsored" className="sr-only">
+          Sponsored: {ad.text}
+        </a>
+      ) : (
+        <button onClick={onAdvertise} className="sr-only">Advertise on AntBubbles</button>
+      )}
 
       {tooltip && !dragging && (
         <div

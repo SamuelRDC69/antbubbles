@@ -16,6 +16,20 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Advertising review
+
+Advertisers choose an hourly start, pay, then enter review. Blockchain-verified submissions appear at `/admin/ads`; owner approval schedules the bubble for its booked slot. Configure Upstash as described in `proxy.ts` and set a strong `AD_ADMIN_TOKEN`.
+
+Bundle USD prices are floors. Each published booking adds pressure to an uncapped, constant-product-style curve backed by seven days of virtual capacity. Pressure has a seven-day half-life, so sustained demand raises prices while inactivity returns them toward the floor. KEK and DEAL amounts use the live Alcor USD price when checkout is prepared.
+
+Generate the token yourself and keep it out of git:
+
+```bash
+openssl rand -hex 32
+```
+
+Set the output as `AD_ADMIN_TOKEN` in the production environment and enter the same value on `/admin/ads`.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

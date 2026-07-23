@@ -34,6 +34,7 @@ interface Props {
   onChainChange:  (chain: ChainConfig) => void
   onModeChange:   (mode: DisplayMode) => void
   onSearchChange: (q: string) => void
+  onAdvertise:    () => void
 }
 
 export default function TopBar({
@@ -45,6 +46,7 @@ export default function TopBar({
   onChainChange,
   onModeChange,
   onSearchChange,
+  onAdvertise,
 }: Props) {
   const validTimeframes = TIMEFRAMES[displayMode.metric]
 
@@ -163,6 +165,13 @@ export default function TopBar({
           {lastUpdated.toLocaleTimeString()}
         </div>
       )}
+
+      <button
+        onClick={onAdvertise}
+        className="shrink-0 rounded-lg border border-[#ffd700]/40 px-3 py-1.5 text-[12px] font-semibold text-[#ffd700] transition-colors hover:bg-[#ffd700]/10"
+      >
+        ◆ Advertise
+      </button>
 
       {/* Legend */}
       <div className="items-center gap-3 text-[11px] shrink-0 hidden xl:flex">
