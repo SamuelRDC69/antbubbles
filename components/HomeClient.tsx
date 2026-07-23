@@ -12,6 +12,7 @@ import TokenModalLoader from '@/components/TokenModalLoader'
 import StatsBar from '@/components/StatsBar'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { prefetchChart, buildDefaultChartUrl } from '@/lib/chartCache'
+import { CURRENT_RELEASE } from '@/lib/releases'
 
 // Canvas and modal code stay out of the initial client bundle.
 const BubbleChart = dynamic(() => import('@/components/BubbleChart'), { ssr: false })
@@ -95,6 +96,18 @@ export default function HomeClient({ initialTokens }: Props) {
         onSearchChange={setSearchQuery}
         onAdvertise={openAdvertise}
       />
+
+      <aside
+        aria-label={`AntBubbles version ${CURRENT_RELEASE.version} release announcement`}
+        className="scrollbar-none flex shrink-0 items-center gap-2 overflow-x-auto whitespace-nowrap border-b border-[#f89422]/20 bg-[#f89422]/[0.06] px-4 py-1.5 text-[11px]"
+      >
+        <span className="font-mono font-bold uppercase tracking-wider text-[#f89422]">
+          Release {String(CURRENT_RELEASE.sequence).padStart(3, '0')} · v{CURRENT_RELEASE.version}
+        </span>
+        <span className="text-gray-300">{CURRENT_RELEASE.title}</span>
+        <span className="text-gray-600">—</span>
+        <span className="text-gray-500">{CURRENT_RELEASE.summary}</span>
+      </aside>
 
       <main className="flex-1 relative min-h-0">
         {!error && tokens.length > 0 && (

@@ -2,8 +2,9 @@
 
 import { DisplayMode, Metric, Timeframe, ChainConfig } from '@/lib/types'
 import { CHAINS } from '@/lib/chains'
+import { CURRENT_RELEASE } from '@/lib/releases'
 
-const CHAIN_TABS = [CHAINS.wax, CHAINS.proton]
+const CHAIN_TABS = [CHAINS.wax]
 
 // Which timeframes are valid for each metric
 const TIMEFRAMES: Record<Metric, Timeframe[]> = {
@@ -82,6 +83,9 @@ export default function TopBar({
         </div>
         <span className="font-bold text-white text-[16px] leading-none hidden sm:block tracking-tight">
           Ant<span className="text-[#f89422]">Bubbles</span>
+        </span>
+        <span className="rounded border border-white/[0.08] px-1 py-0.5 font-mono text-[9px] leading-none text-gray-600">
+          v{CURRENT_RELEASE.version}
         </span>
       </div>
 
