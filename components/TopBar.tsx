@@ -1,6 +1,9 @@
 'use client'
 
 import { DisplayMode, Metric, Timeframe, ChainConfig } from '@/lib/types'
+import { CHAINS } from '@/lib/chains'
+
+const CHAIN_TABS = [CHAINS.wax, CHAINS.proton]
 
 // Which timeframes are valid for each metric
 const TIMEFRAMES: Record<Metric, Timeframe[]> = {
@@ -82,11 +85,25 @@ export default function TopBar({
         </span>
       </div>
 
-      {/* Chain badge — single chain for v1 */}
-      <div className="flex items-center px-2.5 py-1.5 rounded-lg bg-white/[0.07] shrink-0">
-        <span className="text-[12px] font-semibold" style={{ color: chain.color }}>
-          {chain.displayName}
-        </span>
+      {/* Chain tabs */}
+      <div className="flex items-center bg-white/[0.07] rounded-lg p-0.5 shrink-0" role="tablist" aria-label="Blockchain">
+        {CHAIN_TABS.map(option => (
+          <button
+            key={option.id}
+            type="button"
+            role="tab"
+            aria-selected={chain.id === option.id}
+            onClick={() => onChainChange(option)}
+            className={`px-2.5 py-1.5 rounded-md text-[12px] font-semibold transition-all ${
+              chain.id === option.id
+                ? 'bg-white/[0.12] shadow-sm'
+                : 'text-gray-500 hover:text-gray-300'
+            }`}
+            style={chain.id === option.id ? { color: option.color } : undefined}
+          >
+            {option.displayName}
+          </button>
+        ))}
       </div>
 
       {/* Metric selector */}
