@@ -13,9 +13,11 @@ const WAX_CHAIN_ID = '1064487b3cd1a897ce03ae5b6a865651747e2e152090f99c1d19d44e01
 export interface WalletContextValue {
   session:  Session | null
   actor:    string | null     // "myaccount" — null when not connected
+  accounts: string[]          // Locally saved WAX sessions for this browser
   loading:  boolean
   login:    () => Promise<void>
   logout:   () => Promise<void>
+  switchAccount: (actor: string) => Promise<void>
   // Pass AnyAction-compatible array; resolves with the transaction result
   transact: (actions: unknown[]) => Promise<unknown>
 }
@@ -23,14 +25,17 @@ export interface WalletContextValue {
 const WalletContext = createContext<WalletContextValue>({
   session:  null,
   actor:    null,
+  accounts: [],
   loading:  true,
   login:    async () => {},
   logout:   async () => {},
+  switchAccount: async () => {},
   transact: async () => { throw new Error('Not connected') },
 })
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
+  const [accounts, setAccounts] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const kitRef = useRef<SessionKit | null>(null)
 
@@ -65,23 +70,33 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     return kitRef.current
   }, [])
 
+  const refreshAccounts = useCallback(async (kit?: SessionKit) => {
+    const sessions = await (kit ?? await getKit()).getSessions()
+    setAccounts([...new Set(sessions.map(saved => String(saved.actor)))])
+  }, [getKit])
+
   // Restore existing session on mount
   useEffect(() => {
     getKit()
-      .then(kit => kit.restore())
-      .then(s  => { setSession(s ?? null); setLoading(false) })
+      .then(async kit => {
+        const restored = await kit.restore()
+        await refreshAccounts(kit)
+        setSession(restored ?? null)
+        setLoading(false)
+      })
       .catch(() => setLoading(false))
-  }, [getKit])
+  }, [getKit, refreshAccounts])
 
   const login = useCallback(async () => {
     const kit = await getKit()
     try {
       const { session: s } = await kit.login()
       setSession(s)
+      await refreshAccounts(kit)
     } catch {
       // User dismissed the wallet selection dialog — not an error
     }
-  }, [getKit])
+  }, [getKit, refreshAccounts])
 
   const logout = useCallback(async () => {
     const kit = await getKit()
@@ -89,7 +104,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       try { await kit.logout(session) } catch {}
     }
     setSession(null)
-  }, [getKit, session])
+    await refreshAccounts(kit)
+  }, [getKit, refreshAccounts, session])
+
+  const switchAccount = useCallback(async (actor: string) => {
+    const kit = await getKit()
+    const saved = (await kit.getSessions()).find(item => String(item.actor) === actor)
+    if (!saved) return
+    const next = await kit.restore(saved)
+    if (next) setSession(next)
+  }, [getKit])
 
   const transact = useCallback(async (actions: unknown[]) => {
     if (!session) throw new Error('Wallet not connected')
@@ -100,9 +124,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     <WalletContext.Provider value={{
       session,
       actor:   session ? String(session.actor) : null,
+      accounts,
       loading,
       login,
       logout,
+      switchAccount,
       transact,
     }}>
       {children}

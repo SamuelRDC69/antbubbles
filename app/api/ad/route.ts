@@ -184,9 +184,11 @@ async function preparePayment(req: NextRequest) {
   if (!redis) return jsonError('Advertising is not configured', 503)
 
   const body = await req.json().catch(() => null) as { submissionId?: string; buyer?: string } | null
+  const buyer = String(body?.buyer ?? '')
   if (!body?.submissionId || !ID_RE.test(body.submissionId)) return jsonError('Invalid submission', 400)
+  if (!ACCOUNT_RE.test(buyer)) return jsonError('Invalid payment account', 400)
   const submission = await redis.get<AdSubmission>(AD_REDIS_KEYS.submission(body.submissionId))
-  if (!submission || submission.status !== 'awaiting_payment' || submission.buyer !== body.buyer) {
+  if (!submission || submission.status !== 'awaiting_payment') {
     return jsonError('This submission is not awaiting payment', 403)
   }
   if ((await bookedSlots(redis, submission.startAt, submission.endAt)).length) {
@@ -213,7 +215,7 @@ async function preparePayment(req: NextRequest) {
       logoPosition: submission.logoPosition,
       linkUrl: submission.linkUrl,
       hours: submission.hours,
-      buyer: submission.buyer,
+      buyer,
       contract: payment.contract,
       symbol: submission.symbol,
       quantity: tokenQuantity(feeUsd, await currentUsdPrice(payment.contract, submission.symbol), submission.symbol),
@@ -225,6 +227,9 @@ async function preparePayment(req: NextRequest) {
     }
     const reserved = await redis.set(AD_REDIS_KEYS.reservation, reservation, { nx: true, ex: 5 * 60 })
     if (!reserved) return jsonError('Another advertiser is checking out', 409)
+    if (submission.buyer !== buyer) {
+      await redis.set(AD_REDIS_KEYS.submission(submission.id), { ...submission, buyer }, { ex: 180 * 24 * 3600 })
+    }
     return NextResponse.json({ reservation, recipient: AD_RECIPIENT })
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : 'Could not prepare payment', 502)

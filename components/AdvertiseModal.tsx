@@ -103,7 +103,7 @@ function overlayStyle(position: AdOverlayPosition): React.CSSProperties {
 }
 
 export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props) {
-  const { actor, login, transact } = useWallet()
+  const { actor, accounts, login, switchAccount, transact } = useWallet()
   const [text, setText] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
   const [tokenId, setTokenId] = useState('')
@@ -141,6 +141,7 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [accountPickerOpen, setAccountPickerOpen] = useState(false)
 
   const selectedToken = tokens.find(token => token.id === tokenId)
   const previewBackground = imageMode === 'background' ? ipfsImageUrl(ipfsUrl) ?? safeHttpUrl(ipfsUrl) : ''
@@ -401,6 +402,17 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
       if (!message.toLowerCase().includes('cancel') && !message.toLowerCase().includes('reject')) setError(message)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function selectPaymentAccount(account?: string) {
+    setError('')
+    try {
+      if (account) await switchAccount(account)
+      else await login()
+      setAccountPickerOpen(false)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not switch wallet')
     }
   }
 
@@ -669,6 +681,33 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                 <p className="text-sm text-gray-300">
                   Pay now to send this booked slot to owner review. It displays only if the owner approves it.
                 </p>
+                {actor && !pendingPayment && !busy && (
+                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Paying from</p>
+                        <p className="truncate text-sm font-semibold text-white">{actor}</p>
+                      </div>
+                      <button onClick={() => setAccountPickerOpen(open => !open)}
+                        className="shrink-0 text-xs font-semibold text-[#f89422] hover:text-[#ffad4d]">
+                        Switch wallet
+                      </button>
+                    </div>
+                    {accountPickerOpen && (
+                      <div className="mt-3 space-y-1 border-t border-white/10 pt-2">
+                        {accounts.filter(account => account !== actor).map(account => (
+                          <button key={account} onClick={() => void selectPaymentAccount(account)}
+                            className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-xs text-gray-300 hover:bg-white/[0.07] hover:text-white">
+                            <span className="truncate">{account}</span><span className="text-[#f89422]">Use</span>
+                          </button>
+                        ))}
+                        <button onClick={() => void selectPaymentAccount()} className="w-full rounded-lg px-2 py-2 text-left text-xs font-semibold text-[#f89422] hover:bg-white/[0.07]">
+                          Connect another wallet
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {error && <p role="alert" className="rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</p>}
                 <button onClick={pay} disabled={busy}
                   className="w-full rounded-xl bg-[#ffd700] py-3 text-sm font-bold text-black disabled:opacity-40">
