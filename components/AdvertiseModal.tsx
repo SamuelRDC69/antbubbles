@@ -105,8 +105,12 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
   const quoteUsd = pricing?.quotes.find(quote => quote.hours === quoteHours)?.usd ?? floorUsd
   const assetQuote = (paymentSymbol: PaymentSymbol) => {
     const token = tokens.find(item => item.contract === PAYMENT_TOKENS[paymentSymbol].contract)
+    const waxReference = tokens.find(item => item.system_price > 0)
+    const tokenUsdPrice = paymentSymbol === 'WAX' && waxReference
+      ? waxReference.usd_price / waxReference.system_price
+      : token?.usd_price
     try {
-      return token?.usd_price ? tokenQuantity(quoteUsd, token.usd_price, paymentSymbol) : null
+      return tokenUsdPrice ? tokenQuantity(quoteUsd, tokenUsdPrice, paymentSymbol) : null
     } catch {
       return null
     }
@@ -124,6 +128,10 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
       <div className="mt-1 flex items-center justify-between">
         <span className="text-gray-500">DEAL</span>
         <span className="font-medium text-[#ffd700]">≈ {displayAsset(assetQuote('DEAL'))}</span>
+      </div>
+      <div className="mt-1 flex items-center justify-between">
+        <span className="text-gray-500">WAX</span>
+        <span className="font-medium text-[#ffd700]">≈ {displayAsset(assetQuote('WAX'))}</span>
       </div>
       <p className="mt-2 text-[10px] leading-relaxed text-gray-500">
         Floor ${floorUsd.toFixed(2)} · demand {pricing?.multiplier.toFixed(2) ?? '1.00'}× as of{' '}
@@ -420,6 +428,7 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                   className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#111820] px-3 py-2 text-white">
                   <option value="KEK">KEK · waxpepetoken</option>
                   <option value="DEAL">DEAL · dealwithitwx</option>
+                  <option value="WAX">WAX · eosio.token</option>
                 </select>
               </label>
             </div>
@@ -508,7 +517,7 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
               {busy ? 'Submitting…' : actor ? 'Continue to payment' : 'Connect wallet'}
             </button>
             <p className="text-center text-[11px] text-gray-500">
-              Payment is taken before owner review and does not guarantee approval. USD pricing converts to KEK or DEAL at checkout using the live Alcor price.
+              Payment is taken before owner review and does not guarantee approval. USD pricing converts to KEK, DEAL, or WAX at checkout using the live Alcor price.
             </p>
           </div>
         ) : (

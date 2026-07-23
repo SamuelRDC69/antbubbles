@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AD_PERIODS,
   AD_RECIPIENT,
+  PAYMENT_TOKENS,
   AdPricingState,
   AdReservation,
   adDemandMultiplier,
@@ -46,10 +47,24 @@ describe('marketing ad payments', () => {
     expect(hasExpectedPayment({ ...payment, actions: [{ act: { ...payment.actions[0].act, data: {
       ...payment.actions[0].act.data, quantity: '1.0000 KEK',
     } } }] }, reservation)).toBe(false)
+
+    const waxReservation = {
+      ...reservation,
+      contract: PAYMENT_TOKENS.WAX.contract,
+      symbol: 'WAX' as const,
+      quantity: '25.00000000 WAX',
+    }
+    expect(hasExpectedPayment({
+      executed: true,
+      actions: [{ act: { account: 'eosio.token', name: 'transfer', data: {
+        from: 'buyer.gm', to: AD_RECIPIENT, quantity: '25.00000000 WAX', memo: 'antbubbles-ad:abc',
+      } } }],
+    }, waxReservation)).toBe(true)
   })
 
   it('rounds payment up and rejects unsafe links', () => {
     expect(tokenQuantity(1, 3, 'KEK')).toBe('0.3334 KEK')
+    expect(tokenQuantity(1, 0.04, 'WAX')).toBe('25.00000000 WAX')
     expect(safeHttpUrl('javascript:alert(1)')).toBeNull()
     expect(safeHttpUrl('https://example.com')).toBe('https://example.com/')
     expect(safeHttpUrl('/api/logo?id=kek-waxpepetoken', true, true)).toBe('/api/logo?id=kek-waxpepetoken')

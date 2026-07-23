@@ -59,17 +59,31 @@ interface TooltipState {
 // Logos are served by our own /api/logo proxy (cached 24h) so all requests
 // can fire in parallel — no stagger needed.
 const imageCache = new Map<string, HTMLImageElement | null>()
+const imageRequests = new Map<string, Promise<HTMLImageElement | null>>()
 
 function loadImage(url: string): Promise<HTMLImageElement | null> {
   if (imageCache.has(url)) return Promise.resolve(imageCache.get(url)!)
-  return new Promise(resolve => {
+  const pending = imageRequests.get(url)
+  if (pending) return pending
+  const request = new Promise<HTMLImageElement | null>(resolve => {
     const img = new Image()
-    img.onload  = () => { imageCache.set(url, img);  resolve(img)  }
-    // Do not permanently cache transient CDN/network failures.
-    img.onerror = () => { imageCache.delete(url); resolve(null) }
+    let settled = false
+    const finish = (image: HTMLImageElement | null) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      if (image) imageCache.set(url, image)
+      else imageCache.delete(url)
+      resolve(image)
+    }
+    const timeout = setTimeout(() => finish(null), 8_000)
+    img.onload = () => finish(img)
+    img.onerror = () => finish(null)
     img.decoding = 'async'
     img.src = url
-  })
+  }).finally(() => imageRequests.delete(url))
+  imageRequests.set(url, request)
+  return request
 }
 
 // ── Offscreen-canvas helpers ──────────────────────────────────────────────────
@@ -375,6 +389,7 @@ export default function BubbleChart({
   const dimRef        = useRef({ width: 0, height: 0 })
   const prevDimRef    = useRef({ width: 0, height: 0 })
   const onReadyFiredRef = useRef(false)
+  const [assetsReady, setAssetsReady] = useState(false)
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
   const [tooltip, setTooltip]       = useState<TooltipState | null>(null)
 
@@ -398,27 +413,22 @@ export default function BubbleChart({
 
   // ── Logo preload ───────────────────────────────────────────────────────────
   useEffect(() => {
-    for (const t of tokens) {
-      if (!imagesRef.current.has(t.id)) {
-        loadImage(t.logoUrl).then((img) => {
-          imagesRef.current.set(t.id, img)
-          offscreenCacheRef.current.delete(t.id)
-        })
-      }
-    }
-  }, [tokens])
-
-  useEffect(() => {
-    if (!ad?.imageUrl) {
-      imagesRef.current.delete(MARKETING_ID)
-      offscreenCacheRef.current.delete(MARKETING_ID)
-      return
-    }
-    loadImage(ad.imageUrl).then(img => {
-      imagesRef.current.set(MARKETING_ID, img)
-      offscreenCacheRef.current.delete(MARKETING_ID)
+    let active = true
+    queueMicrotask(() => setAssetsReady(false))
+    onReadyFiredRef.current = false
+    const sources = [
+      ...tokens.map(token => ({ id: token.id, url: token.logoUrl })),
+      ...(ad?.imageUrl ? [{ id: MARKETING_ID, url: ad.imageUrl }] : []),
+    ]
+    Promise.all(sources.map(async ({ id, url }) => {
+      const image = await loadImage(url)
+      imagesRef.current.set(id, image)
+      offscreenCacheRef.current.delete(id)
+    })).finally(() => {
+      if (active) setAssetsReady(true)
     })
-  }, [ad?.imageUrl])
+    return () => { active = false }
+  }, [ad?.imageUrl, tokens])
 
   // ── Simulation init / update ───────────────────────────────────────────────
   useEffect(() => {
@@ -623,7 +633,7 @@ export default function BubbleChart({
       }
 
       // Signal skeleton can be hidden after first real frame with nodes
-      if (!onReadyFiredRef.current && nodes.length > 0) {
+      if (!onReadyFiredRef.current && nodes.length > 0 && assetsReady) {
         onReadyFiredRef.current = true
         onReady?.()
       }
@@ -633,7 +643,7 @@ export default function BubbleChart({
 
     rafRef.current = requestAnimationFrame(draw)
     return () => { running = false; cancelAnimationFrame(rafRef.current) }
-  }, [dimensions, searchQuery, displayMode])
+  }, [assetsReady, dimensions, searchQuery, displayMode, onReady])
 
   // ── Hit test ───────────────────────────────────────────────────────────────
   const getNodeAt = useCallback((cx: number, cy: number): SimNode | null => {
@@ -697,7 +707,7 @@ export default function BubbleChart({
     } else {
       setTooltip(null)
     }
-  }, [getNodeAt])
+  }, [getNodeAt, onHoverToken])
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const node = getNodeAt(e.clientX, e.clientY)
@@ -714,7 +724,7 @@ export default function BubbleChart({
     canvasRef.current!.style.cursor = 'grabbing'
   }, [getNodeAt])
 
-  const handleMouseUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMouseUp = useCallback(() => {
     if (dragRef.current) {
       const wasDrag = hasDraggedRef.current
       if (!wasDrag) activateNode(dragRef.current)

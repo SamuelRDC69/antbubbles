@@ -100,14 +100,14 @@ export async function GET(req: NextRequest) {
   })
 }
 
-async function currentUsdPrice(contract: string): Promise<number> {
+async function currentUsdPrice(contract: string, symbol: PaymentSymbol): Promise<number> {
   const response = await fetch('https://wax.alcor.exchange/api/v2/tokens', {
     cache: 'no-store',
     signal: AbortSignal.timeout(10_000),
   })
   if (!response.ok) throw new Error('Token pricing is temporarily unavailable')
-  const tokens = await response.json() as Array<{ contract?: string; usd_price?: number | string }>
-  const price = Number(tokens.find(token => token.contract === contract)?.usd_price)
+  const tokens = await response.json() as Array<{ contract?: string; symbol?: string; usd_price?: number | string }>
+  const price = Number(tokens.find(token => token.contract === contract && token.symbol === symbol)?.usd_price)
   if (!(price > 0)) throw new Error('Token pricing is temporarily unavailable')
   return price
 }
@@ -197,7 +197,7 @@ async function preparePayment(req: NextRequest) {
       buyer: submission.buyer,
       contract: payment.contract,
       symbol: submission.symbol,
-      quantity: tokenQuantity(feeUsd, await currentUsdPrice(payment.contract), submission.symbol),
+      quantity: tokenQuantity(feeUsd, await currentUsdPrice(payment.contract, submission.symbol), submission.symbol),
       memo: `antbubbles-ad:${id}`,
       feeUsd,
       quotedAt,

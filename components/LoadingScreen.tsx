@@ -1,5 +1,3 @@
-'use client'
-
 import { ChainConfig } from '@/lib/types'
 
 interface Props {
@@ -20,7 +18,7 @@ export default function LoadingScreen({ chain, error }: Props) {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-6">
+    <div className="flex h-full flex-col items-center justify-center gap-6 bg-black">
       {/* Animated bubbles */}
       <div className="relative w-32 h-32">
         {[
@@ -31,7 +29,7 @@ export default function LoadingScreen({ chain, error }: Props) {
         ].map((b, i) => (
           <div
             key={i}
-            className="absolute rounded-full animate-pulse"
+            className="absolute animate-pulse rounded-full motion-reduce:animate-none"
             style={{
               width: b.size,
               height: b.size,
@@ -44,10 +42,10 @@ export default function LoadingScreen({ chain, error }: Props) {
           />
         ))}
       </div>
-      <div className="text-gray-400 font-medium">
-        Loading <span style={{ color: chain.color }}>{chain.displayName}</span> tokens…
+      <div className="font-medium text-gray-300">
+        Preparing <span style={{ color: chain.color }}>{chain.displayName}</span> markets…
       </div>
-      <div className="text-gray-600 text-sm">Fetching data from Alcor DEX</div>
+      <div className="text-sm text-gray-400">Loading live data, assets, and liquidity</div>
     </div>
   )
 }

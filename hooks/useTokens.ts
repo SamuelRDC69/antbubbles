@@ -45,6 +45,7 @@ export function useTokens(
   const [loading,     setLoading]     = useState(seed.length === 0)
   const [error,       setError]       = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [suppliesReady, setSuppliesReady] = useState(false)
   // true = stream is delivering fresh data; false = no data for >75 s (genuine outage).
   // Driven by a watchdog timer, NOT by onerror — the server closes the connection after
   // each SSE event (by design) which fires onerror on reconnect, so onerror cannot
@@ -75,7 +76,11 @@ export function useTokens(
   , [])
 
   const ensureSupply = useCallback((list: TokenBubbleData[], chainId: string) => {
-    if (supplyChainRef.current === chainId || list.length === 0) return
+    if (list.length === 0) {
+      setSuppliesReady(true)
+      return
+    }
+    if (supplyChainRef.current === chainId) return
     supplyChainRef.current = chainId
 
     const refs = list.map(t => ({ id: t.id, contract: t.contract, symbol: t.symbol }))
@@ -91,6 +96,7 @@ export function useTokens(
       .catch(() => {
         supplyChainRef.current = ''
       })
+      .finally(() => setSuppliesReady(true))
   }, [applySupply])
 
   const handleTokenData = useCallback((merged: TokenBubbleData[], chainId: string) => {
@@ -110,7 +116,7 @@ export function useTokens(
 
     lsWrite(chainId, withSupply)
 
-    // Fetch supplies once per chain session (background — doesn't block render)
+    // Fetch supplies once per chain session.
     ensureSupply(merged, chainId)
   }, [applySupply, ensureSupply])
 
@@ -122,6 +128,7 @@ export function useTokens(
 
     // Show cached data immediately while SSE connects
     queueMicrotask(() => {
+      setSuppliesReady(false)
       if (!hasSeeded) {
         const cached = lsRead(chain.id)
         if (cached.length > 0) {
@@ -177,5 +184,5 @@ export function useTokens(
     setTokens(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
   }, [])
 
-  return { tokens, loading, error, lastUpdated, connected, updateToken }
+  return { tokens, loading, error, lastUpdated, connected, suppliesReady, updateToken }
 }

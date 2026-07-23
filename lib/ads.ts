@@ -81,6 +81,7 @@ export const AD_PERIODS = [
 export const PAYMENT_TOKENS = {
   KEK: { contract: 'waxpepetoken', precision: 4 },
   DEAL: { contract: 'dealwithitwx', precision: 8 },
+  WAX: { contract: 'eosio.token', precision: 8 },
 } as const
 
 export type PaymentSymbol = keyof typeof PAYMENT_TOKENS
