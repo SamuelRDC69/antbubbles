@@ -41,6 +41,25 @@ interface Candle {
   time: number; open: number; high: number; low: number; close: number; volume: number
 }
 
+async function fetchFirstCandleData(
+  urls: Array<string | null>,
+  signal: AbortSignal,
+  normalise: (candles: Candle[]) => Candle[],
+): Promise<Candle[]> {
+  const fetchOne = (url: string) => fetch(url, { signal })
+    .then(response => response.ok ? response.json() : [])
+    .then((data: unknown) => {
+      const candles = Array.isArray(data) ? data as Candle[] : []
+      if (candles.length < 2) throw new Error('No candle data')
+      return normalise(candles)
+    })
+  try {
+    return await Promise.any(urls.filter((url): url is string => !!url).map(fetchOne))
+  } catch {
+    return []
+  }
+}
+
 // All 9 resolutions the Alcor API actually supports
 type ChartRange  = '1m' | '5m' | '15m' | '30m' | '1H' | '4H' | '1D' | '1W' | '1M'
 type ChartView   = 'line' | 'candles' | 'depth'
@@ -837,39 +856,12 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
     // This is the same pattern DEX Screener uses: serve from own cache when warm,
     // go direct to the data source when cold — zero wasted wait time either way.
 
-    const fetchWithData = (p: Promise<Response>): Promise<Candle[] | null> =>
-      p.then(r => r.ok ? r.json() : null)
-       .then((d: unknown) => {
-         const raw = Array.isArray(d) ? d as Candle[] : []
-         return raw.length > 0 ? normalise(raw) : null
-       })
-       .catch(() => null)
+    const result = await fetchFirstCandleData([url, alcorUrl], signal, normalise)
 
-    const serverPromise = fetchWithData(fetch(url, { signal }))
-    const alcorPromise  = alcorUrl ? fetchWithData(fetch(alcorUrl, { signal })) : Promise.resolve(null)
-
-    // Resolve as soon as either returns data; fall back to the other if one is null
-    const result = await new Promise<Candle[]>((resolve) => {
-      let settled = 0
-      let finished = false
-      const finish = (data: Candle[]) => {
-        if (finished) return
-        finished = true
-        clearTimeout(timeout)
-        resolve(data)
-      }
-      const timeout = setTimeout(() => finish([]), 10_000)
-      const tryResolve = (data: Candle[] | null, other: Promise<Candle[] | null>) => {
-        if (data && data.length > 0) { finish(data); return }
-        if (++settled === 2) finish([])
-        else other.then(d => { if (d && d.length > 0) finish(d); else if (++settled >= 2) finish([]) })
-      }
-      serverPromise.then(d => tryResolve(d, alcorPromise))
-      alcorPromise.then(d  => tryResolve(d, serverPromise))
-    })
-
-    setChart(url, result)
-    cacheRef.current.set(cacheKey, result)
+    if (result.length >= 2) {
+      setChart(url, result)
+      cacheRef.current.set(cacheKey, result)
+    }
     return result
   }, [token, chain])
 
@@ -984,21 +976,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
         return
       }
 
-      const getCandles = (fetchUrl: string) =>
-        fetch(fetchUrl, { signal: ctrl.signal })
-          .then(res => res.ok ? res.json() : [])
-          .then((d: unknown) => { const raw = Array.isArray(d) ? d as Candle[] : []; return raw.length > 0 ? normCandles(raw) : null })
-          .catch(() => null)
-
-      // Fire both simultaneously — use the first one that returns data
-      const serverP = getCandles(url)
-      const alcorP  = alcorDirect ? getCandles(alcorDirect) : Promise.resolve(null)
-
-      Promise.race([
-        serverP.then(d => d ?? alcorP),
-        alcorP.then(d  => d ?? serverP),
-      ]).then(async result => {
-        const candles = result instanceof Promise ? (await result ?? []) : (result ?? [])
+      fetchFirstCandleData([url, alcorDirect], ctrl.signal, normCandles).then(candles => {
         if (candles.length >= 2) {
           setChart(url, candles)
           const pct = (candles[candles.length-1].close - candles[0].close) / candles[0].close * 100

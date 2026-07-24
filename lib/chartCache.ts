@@ -30,6 +30,8 @@ export function getChart(url: string): Candle[] | null {
 }
 
 export function setChart(url: string, data: Candle[]): void {
+  // A transient API miss must not suppress retries for the next 10 minutes.
+  if (data.length < 2) return
   store.set(url, { data, ts: Date.now() })
 }
 

@@ -9,4 +9,8 @@ describe('formatPrice', () => {
   it('formats a tiny native-token swap price without rounding it to eight decimals', () => {
     expect(formatTokenPrice(0.000000028734)).toBe('0.0₇28734')
   })
+
+  it('keeps six significant digits in the chart-axis format', () => {
+    expect(formatTokenPrice(0.00000260937)).toBe('0.0₅260937')
+  })
 })

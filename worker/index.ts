@@ -79,6 +79,7 @@ const CHAINS: ChainConfig[] = [
 
 const KEY = {
   tokens:    (chainId: string) => `tokens:${chainId}`,
+  rankSnap:  (chainId: string) => `rank-snapshot:${chainId}`,
   klines:    (key: string)     => `chart:klines:${key}`,
   poolChart: (key: string)     => `chart:pool:${key}`,
 }
@@ -94,7 +95,7 @@ function chartTtlS(resolution: string): number {
 
 const TOKEN_TTL_S = 90   // worker refreshes every 30 s; 90 s gives a 2× safety margin
 
-// ── Rank & daily-snapshot state (per chain, lives in worker process memory) ───
+// ── Rank cache + daily-snapshot state ─────────────────────────────────────────
 
 const RANK_SNAP_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -103,6 +104,22 @@ interface RankSnap {
   ts:    number
 }
 const rankSnaps = new Map<string, RankSnap>()
+
+type StoredRankSnap = { ranks: Record<string, number>; ts: number }
+
+async function getRankSnap(chainId: string): Promise<RankSnap | undefined> {
+  const cached = rankSnaps.get(chainId)
+  if (cached) return cached
+  try {
+    const stored = await redis.get<StoredRankSnap>(KEY.rankSnap(chainId))
+    if (!stored) return undefined
+    const snap = { ts: stored.ts, ranks: new Map(Object.entries(stored.ranks)) }
+    rankSnaps.set(chainId, snap)
+    return snap
+  } catch {
+    return undefined
+  }
+}
 
 interface DailySnap {
   day:    string
@@ -184,7 +201,7 @@ async function pollChain(chain: ChainConfig): Promise<TokenBubbleData[] | null> 
     const withRanks = merged.map((t, i) => ({ ...t, rank: i + 1 }))
 
     const now      = Date.now()
-    const snap     = rankSnaps.get(chain.id)
+    const snap     = await getRankSnap(chain.id)
     const snap1d   = getDailySnap(chain.id, 1)
     const snap7d   = getDailySnap(chain.id, 7)
     const snap30d  = getDailySnap(chain.id, 30)
@@ -198,10 +215,17 @@ async function pollChain(chain: ChainConfig): Promise<TokenBubbleData[] | null> 
     }))
 
     if (!snap || now - snap.ts >= RANK_SNAP_TTL_MS) {
-      rankSnaps.set(chain.id, {
+      const next = {
         ranks: new Map(withRanks.map(t => [t.id, t.rank])),
         ts: now,
-      })
+      }
+      rankSnaps.set(chain.id, next)
+      try {
+        await redis.set(KEY.rankSnap(chain.id), {
+          ts: next.ts,
+          ranks: Object.fromEntries(next.ranks),
+        })
+      } catch { /* rank movement will resume after the next successful write */ }
     }
     recordDailySnap(chain.id, data, now)
 

@@ -15,7 +15,9 @@ import {
   LineData,
   SeriesType,
   Time,
+  type TickMarkFormatter,
 } from 'lightweight-charts'
+import { formatTokenPrice } from '@/lib/bubbleUtils'
 
 interface Candle {
   time: number; open: number; high: number; low: number; close: number; volume: number
@@ -134,6 +136,17 @@ function fmtVol(v: number): string {
 const UP   = '#00cc44'
 const DOWN = '#cc1122'
 
+const formatAxisDate: TickMarkFormatter = (time, _type, locale) => {
+  const date = typeof time === 'number'
+    ? new Date(time * 1000)
+    : typeof time === 'string'
+      ? new Date(`${time}T00:00:00Z`)
+      : new Date(Date.UTC(time.year, time.month - 1, time.day))
+  return date.toLocaleDateString(locale, {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  })
+}
+
 const IND_META: { key: keyof Indicators; label: string; color: string; tip: string }[] = [
   { key: 'ema9',   label: 'EMA 9',   color: '#fbbf24', tip: 'EMA 9 — Fast exponential moving average. Tracks short-term momentum; crosses above EMA 21 can signal a buy.' },
   { key: 'ema21',  label: 'EMA 21',  color: '#a78bfa', tip: 'EMA 21 — Medium-term trend line. Price above = bullish bias; below = bearish. Pairs well with EMA 9.' },
@@ -194,6 +207,7 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
         textColor:  '#6b7280',
         fontSize:   11,
       },
+      localization: { priceFormatter: formatTokenPrice },
       grid: {
         vertLines: { color: '#ffffff07', style: LineStyle.Dashed },
         horzLines: { color: '#ffffff07', style: LineStyle.Dashed },
@@ -203,8 +217,11 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
         vertLine: { color: '#ffffff22', width: 1, style: LineStyle.Dashed, labelBackgroundColor: '#1a2535' },
         horzLine: { color: '#ffffff22', width: 1, style: LineStyle.Dashed, labelBackgroundColor: '#1a2535' },
       },
-      rightPriceScale: { borderColor: '#ffffff0a' },
-      timeScale: { borderColor: '#ffffff0a', timeVisible: true, secondsVisible: false },
+      rightPriceScale: { visible: true, borderColor: '#ffffff0a' },
+      timeScale: {
+        borderColor: '#ffffff0a', timeVisible: true, secondsVisible: false,
+        tickMarkFormatter: formatAxisDate,
+      },
       handleScroll: { mouseWheel: true, pressedMouseMove: true },
       handleScale:  { mouseWheel: true, pinch: true },
     })
@@ -257,6 +274,7 @@ export default function TradingChart({ candles, isPositive, initialCandles = 90 
     // Candles (added after EMAs/BB so they render on top)
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: UP, downColor: DOWN, borderUpColor: UP, borderDownColor: DOWN, wickUpColor: UP, wickDownColor: DOWN,
+      priceFormat: { type: 'custom', formatter: formatTokenPrice, minMove: 1e-18 },
     }, 0)
     candleSeries.setData(candles.map(c => ({
       time: Math.floor(c.time / 1000) as Time,
