@@ -7,6 +7,7 @@ import {
   AdPricingState,
   AdReservation,
   adDemandMultiplier,
+  adPaymentUsd,
   adQuoteUsd,
   bookingOverlaps,
   hasExpectedPayment,
@@ -76,6 +77,12 @@ describe('marketing ad payments', () => {
     expect(ipfsImageUrl('https://example.com/image.png')).toBeNull()
     expect(safeAdColor('#FfD700')).toBe('#ffd700')
     expect(safeAdColor('red')).toBeNull()
+  })
+
+  it('makes KEK and DEAL 15% cheaper than WAX', () => {
+    expect(adPaymentUsd(10, 'WAX')).toBe(10)
+    expect(adPaymentUsd(10, 'KEK')).toBe(8.5)
+    expect(adPaymentUsd(10, 'DEAL')).toBe(8.5)
   })
 
   it('makes longer bundles cheaper per hour', () => {

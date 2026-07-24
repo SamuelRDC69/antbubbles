@@ -3,12 +3,14 @@
 import { useMemo } from 'react'
 import { TokenBubbleData } from '@/lib/types'
 import { formatVolume, formatChange } from '@/lib/bubbleUtils'
+import { useI18n } from '@/contexts/I18nContext'
 
 interface Props {
   tokens: TokenBubbleData[]
 }
 
 export default function StatsBar({ tokens }: Props) {
+  const { t } = useI18n()
   const stats = useMemo(() => {
     if (tokens.length === 0) return null
     const gainers   = tokens.filter(t => t.change24 > 0).length
@@ -30,20 +32,20 @@ export default function StatsBar({ tokens }: Props) {
     <div className="flex items-center gap-3 px-3 py-1.5 bg-black border-t border-white/[0.06] text-xs text-gray-500 shrink-0 overflow-x-auto">
 
       {/* Token count */}
-      <span className="shrink-0 text-gray-600">{tokens.length} tokens</span>
+      <span className="shrink-0 text-gray-600">{tokens.length} {t('tokens')}</span>
 
       {/* Market summary */}
       <span className="text-green-500 font-medium shrink-0">▲ {stats.gainers}</span>
       <span className="text-red-500 font-medium shrink-0">▼ {stats.losers}</span>
       <span className="shrink-0 hidden sm:inline">
-        Vol 24h: <span className="text-gray-300">{formatVolume(stats.totalVol)}</span>
+        {t('volume24h')}: <span className="text-gray-300">{formatVolume(stats.totalVol)}</span>
       </span>
       <span className="shrink-0 hidden md:inline">
-        Top: <span className="text-green-400 font-medium">{stats.topGainer.symbol}</span>
+        {t('top')}: <span className="text-green-400 font-medium">{stats.topGainer.symbol}</span>
         <span className="text-green-600 ml-1">{formatChange(stats.topGainer.change24)}</span>
       </span>
       <span className="shrink-0 hidden md:inline">
-        Bot: <span className="text-red-400 font-medium">{stats.topLoser.symbol}</span>
+        {t('bottom')}: <span className="text-red-400 font-medium">{stats.topLoser.symbol}</span>
         <span className="text-red-600 ml-1">{formatChange(stats.topLoser.change24)}</span>
       </span>
 
@@ -52,7 +54,7 @@ export default function StatsBar({ tokens }: Props) {
 
       {/* Alcor credit */}
       <span className="shrink-0 hidden xl:inline text-gray-700">
-        Powered by{' '}
+        {t('poweredBy')}{' '}
         <a href="https://alcor.exchange" target="_blank" rel="noopener noreferrer"
           className="text-[#f89422] hover:underline">
           Alcor DEX

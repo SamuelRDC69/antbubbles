@@ -3,6 +3,7 @@
 import { DisplayMode, Metric, Timeframe, ChainConfig } from '@/lib/types'
 import { CHAINS } from '@/lib/chains'
 import { CURRENT_RELEASE } from '@/lib/releases'
+import { useI18n } from '@/contexts/I18nContext'
 
 const CHAIN_TABS = [CHAINS.wax]
 
@@ -13,14 +14,6 @@ const TIMEFRAMES: Record<Metric, Timeframe[]> = {
   volume: ['24h', '7d', '30d'],
   tvl:    [],
   mcap:   [],
-}
-
-const METRIC_LABELS: Record<Metric, string> = {
-  change: '% Change',
-  price:  'Price',
-  volume: 'Volume',
-  tvl:    'TVL',
-  mcap:   'Mkt Cap',
 }
 
 const TIMEFRAME_LABELS: Record<Timeframe, string> = {
@@ -52,7 +45,15 @@ export default function TopBar({
   onSearchChange,
   onAdvertise,
 }: Props) {
+  const { t } = useI18n()
   const validTimeframes = TIMEFRAMES[displayMode.metric]
+  const metricLabels: Record<Metric, string> = {
+    change: '% Change',
+    price: 'Price',
+    volume: t('volume24h').replace(' 24h', ''),
+    tvl: 'TVL',
+    mcap: t('marketCap'),
+  }
 
   function setMetric(metric: Metric) {
     const frames = TIMEFRAMES[metric]
@@ -112,7 +113,7 @@ export default function TopBar({
 
       {/* Metric selector */}
       <div className="flex items-center bg-white/[0.07] rounded-lg p-0.5 shrink-0">
-        {(Object.keys(METRIC_LABELS) as Metric[]).map(m => (
+        {(Object.keys(metricLabels) as Metric[]).map(m => (
           <button
             key={m}
             onClick={() => setMetric(m)}
@@ -122,7 +123,7 @@ export default function TopBar({
                 : 'text-gray-500 hover:text-gray-300'
             }`}
           >
-            {METRIC_LABELS[m]}
+            {metricLabels[m]}
           </button>
         ))}
       </div>
@@ -155,7 +156,7 @@ export default function TopBar({
         </svg>
         <input
           type="text"
-          placeholder="Search…"
+          placeholder={t('search')}
           value={searchQuery}
           onChange={e => onSearchChange(e.target.value)}
           className="w-full bg-white/[0.07] border border-white/[0.08] rounded-lg pl-7 pr-3 py-1.5 text-[12px] text-white placeholder-gray-600 focus:outline-none focus:border-white/20 transition-all"
@@ -177,7 +178,7 @@ export default function TopBar({
         }`} />
         <span className={`text-[11px] uppercase tracking-wider font-medium transition-colors duration-500 ${
           connected ? 'text-gray-500' : 'text-amber-600'
-        }`}>{connected ? 'LIVE' : 'CONNECTING…'}</span>
+        }`}>{connected ? t('live') : t('connecting')}</span>
       </div>
 
       {/* Last updated */}
@@ -191,16 +192,16 @@ export default function TopBar({
         onClick={onAdvertise}
         className="shrink-0 rounded-lg border border-[#ffd700]/40 px-3 py-1.5 text-[12px] font-semibold text-[#ffd700] transition-colors hover:bg-[#ffd700]/10"
       >
-        ◆ Advertise
+        ◆ {t('advertise')}
       </button>
 
       {/* Legend */}
       <div className="items-center gap-3 text-[11px] shrink-0 hidden xl:flex">
         <span className="flex items-center gap-1.5 text-gray-500">
-          <span className="w-2 h-2 rounded-full bg-green-500 shadow shadow-green-500/50" /> Up
+          <span className="w-2 h-2 rounded-full bg-green-500 shadow shadow-green-500/50" /> {t('up')}
         </span>
         <span className="flex items-center gap-1.5 text-gray-500">
-          <span className="w-2 h-2 rounded-full bg-red-600 shadow shadow-red-600/50" /> Down
+          <span className="w-2 h-2 rounded-full bg-red-600 shadow shadow-red-600/50" /> {t('down')}
         </span>
       </div>
 

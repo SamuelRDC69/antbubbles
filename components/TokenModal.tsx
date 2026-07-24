@@ -10,12 +10,16 @@ import dynamic from 'next/dynamic'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import LiquidLoader from '@/components/LiquidLoader'
 import TokenModalLoader from '@/components/TokenModalLoader'
+import { useI18n } from '@/contexts/I18nContext'
 
-const ChartLoader = () => (
-  <div className="flex h-full w-full items-center justify-center">
-    <LiquidLoader label="Loading chart" />
-  </div>
-)
+const ChartLoader = () => {
+  const { t } = useI18n()
+  return (
+    <div className="flex h-full w-full items-center justify-center">
+      <LiquidLoader label={t('loadingChart')} />
+    </div>
+  )
+}
 
 const TradingChart = dynamic(() => import('./TradingChart'), {
   ssr: false,
@@ -582,6 +586,7 @@ function PoolSelector({
   chain:         ChainConfig
   onSelect:      (p: TokenPool) => void
 }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   // Dropdown position computed from the trigger's viewport rect so the menu
   // uses fixed positioning — it won't drift when the toolbar scrolls on mobile.
@@ -652,7 +657,7 @@ function PoolSelector({
         >
           {/* Column headers */}
           <div className="flex items-center px-3 py-1.5 border-b border-white/[0.06]">
-            <span className="flex-1 text-[9px] font-semibold uppercase tracking-widest text-gray-600">Pair</span>
+            <span className="flex-1 text-[9px] font-semibold uppercase tracking-widest text-gray-600">{t('pool')}</span>
             <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-600 text-right pl-3 shrink-0">TVL</span>
           </div>
 
@@ -689,6 +694,7 @@ function PoolSelector({
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
 export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: Props) {
+  const { t } = useI18n()
   const [logoError,    setLogoError]    = useState(false)
   const [contractCopied, setContractCopied] = useState(false)
   const [chartRange,   setChartRange]   = useState<ChartRange>('1D')
@@ -1084,7 +1090,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
   }
 
   if (!modalReady) {
-    return <TokenModalLoader label={`Loading ${token.symbol} market`} onClose={onClose} />
+    return <TokenModalLoader label={t('loadingToken', { symbol: token.symbol })} onClose={onClose} />
   }
 
   return (
@@ -1134,7 +1140,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
 
           {/* Performance pills — fixed meaningful windows */}
           <div className="p-4 pb-3 border-b border-white/[0.06]">
-            <div className="text-[9px] text-gray-600 uppercase tracking-widest mb-2 font-semibold">Performance</div>
+            <div className="text-[9px] text-gray-600 uppercase tracking-widest mb-2 font-semibold">{t('performance')}</div>
             <div className="grid grid-cols-5 gap-1">
               {PERF_RANGES.map(r => <PerfPill key={r} label={r} change={perfs[r]} />)}
             </div>
@@ -1142,12 +1148,12 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
 
           {/* Coin details */}
           <div className="p-4 sm:flex-1 sm:overflow-y-auto">
-            <div className="text-[9px] text-gray-600 uppercase tracking-widest mb-2 font-semibold">Coin Details</div>
+            <div className="text-[9px] text-gray-600 uppercase tracking-widest mb-2 font-semibold">{t('coinDetails')}</div>
 
             {/* Rank */}
             {token.rank && (
               <StatRow
-                label="Rank" value={`#${token.rank}`}
+                label={t('rank')} value={`#${token.rank}`}
                 badge={token.rankChange !== undefined && token.rankChange !== 0 ? (
                   <span className={`text-[9px] font-bold tabular-nums leading-none
                     ${token.rankChange > 0 ? 'text-green-500' : 'text-red-400'}`}>
@@ -1160,11 +1166,11 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
             )}
 
             {/* Market Cap */}
-            {token.marketCapUsd && <StatRow label="Market Cap" value={formatVolume(token.marketCapUsd)} />}
+            {token.marketCapUsd && <StatRow label={t('marketCap')} value={formatVolume(token.marketCapUsd)} />}
 
             {token.burnedSupply != null && token.burnedSupply > 0 && (
               <div className="flex items-center justify-between py-1.5 border-b border-white/[0.04]">
-                <span className="text-[11px] text-gray-500">Burned Supply</span>
+                <span className="text-[11px] text-gray-500">{t('burnedSupply')}</span>
                 <span className="flex items-center gap-1.5 text-right">
                   <span className="text-[11px] text-gray-200 font-medium tabular-nums">
                     {Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(token.burnedSupply)}{' '}
@@ -1182,7 +1188,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
             {/* Circulating Supply */}
             {token.supply != null && token.supply > 0 && (
               <div className="flex items-center justify-between py-1.5 border-b border-white/[0.04]">
-                <span className="text-[11px] text-gray-500">Circulating Supply</span>
+                <span className="text-[11px] text-gray-500">{t('circulatingSupply')}</span>
                 <span className="flex items-center gap-1.5 text-right">
                   <span className="text-[11px] text-gray-200 font-medium tabular-nums">
                     {Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(token.supply)}{' '}
@@ -1200,14 +1206,14 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
             {/* Total Supply */}
             {token.totalSupply != null && token.totalSupply > 0 && (
               <StatRow
-                label="Total Supply"
+                label={t('totalSupply')}
                 value={`${Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(token.totalSupply)} ${token.symbol}`}
               />
             )}
 
             {/* Volume 24h */}
             <StatRow
-              label="Volume 24h" value={formatVolume(token.volume24usd)}
+              label={t('volume24h')} value={formatVolume(token.volume24usd)}
               badge={volTrendPct !== null ? (
                 <span className={`text-[9px] font-semibold leading-none
                   ${volTrendPct >= 0 ? 'text-green-500' : 'text-red-400'}`}>
@@ -1222,12 +1228,12 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
               />
             )}
             {token.volume7dusd && (
-              <StatRow label="Volume 7D" value={formatVolume(token.volume7dusd)}
+              <StatRow label={t('volume7d')} value={formatVolume(token.volume7dusd)}
                 badge={<ChangeBadge pct={token.vol7dChange} />}
               />
             )}
             {token.volume30dusd && (
-              <StatRow label="Volume 30D" value={formatVolume(token.volume30dusd)}
+              <StatRow label={t('volume30d')} value={formatVolume(token.volume30dusd)}
                 badge={<ChangeBadge pct={token.vol30dChange} />}
               />
             )}
@@ -1238,7 +1244,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
 
             {token.metadata && (
               <div className="py-2 border-b border-white/[0.04]">
-                <div className="text-[10px] text-gray-600 uppercase tracking-widest mb-1.5 font-semibold">About</div>
+                <div className="text-[10px] text-gray-600 uppercase tracking-widest mb-1.5 font-semibold">{t('about')}</div>
                 {token.metadata.name && <div className="text-[12px] text-gray-200 font-medium">{token.metadata.name}</div>}
                 {token.metadata.description && <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{token.metadata.description}</p>}
                 {(token.metadata.website || token.metadata.socials.length > 0) && (
@@ -1253,7 +1259,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
             {chartSource === 'spot' && (bidUsd > 0 || askUsd > 0) && (
               <div className="py-1.5 border-b border-white/[0.04]">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-gray-500">Bid / Ask</span>
+                  <span className="text-[11px] text-gray-500">{t('bidAsk')}</span>
                   <span className="flex items-center gap-1 text-[11px] font-medium tabular-nums">
                     <PriceDisplay price={bidUsd} className="text-[11px] font-medium tabular-nums" />
                     <span className="text-gray-600">/</span>
@@ -1272,7 +1278,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
 
             {/* Contract */}
             <div className="py-2 border-b border-white/[0.04] last:border-0">
-              <div className="text-[10px] text-gray-600 uppercase tracking-widest mb-1.5 font-semibold">Contract</div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-widest mb-1.5 font-semibold">{t('contract')}</div>
               <div className="flex items-center justify-between gap-2">
                 {/* Chain badge */}
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-gray-400 font-semibold shrink-0">
@@ -1296,7 +1302,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
                       setTimeout(() => setContractCopied(false), 1500)
                     })
                   }}
-                  title="Copy contract address"
+                  title={t('copyContract')}
                   className="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-white/[0.05] hover:bg-white/[0.12] transition-colors"
                 >
                   {contractCopied ? (
@@ -1319,12 +1325,12 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
             {allowAlcorTrade && alcorUrl && (
               <a href={alcorUrl} target="_blank" rel="noopener noreferrer"
                 className="w-full text-center py-2 rounded-xl bg-[#f89422] hover:bg-[#e07d10] text-white font-semibold text-[13px] transition-colors">
-                Swap on Alcor ↗
+                {t('swapOnAlcor')}
               </a>
             )}
             <a href={explorerUrl} target="_blank" rel="noopener noreferrer"
               className="w-full text-center py-2 rounded-xl bg-white/[0.07] hover:bg-white/[0.12] text-gray-400 hover:text-white font-medium text-[13px] transition-colors border border-white/[0.08]">
-              Explorer ↗
+              {t('explorer')}
             </a>
           </div>
         </div>
@@ -1346,7 +1352,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
                     ? <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4" /></svg>
                     : <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="6" width="4" height="10" rx="0.5" strokeWidth={1.5}/><rect x="16" y="9" width="4" height="7" rx="0.5" strokeWidth={1.5}/><line x1="6" y1="3" x2="6" y2="6" strokeWidth={1.5} strokeLinecap="round"/><line x1="6" y1="16" x2="6" y2="19" strokeWidth={1.5} strokeLinecap="round"/><line x1="18" y1="6" x2="18" y2="9" strokeWidth={1.5} strokeLinecap="round"/><line x1="18" y1="16" x2="18" y2="19" strokeWidth={1.5} strokeLinecap="round"/></svg>
                   }
-                  {v === 'line' ? 'Line' : 'Candles'}
+                  {v === 'line' ? t('line') : t('candles')}
                 </button>
               ))}
               {hasLP && (
@@ -1366,7 +1372,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
                     <line x1="4" y1="14" x2="20" y2="14" strokeWidth={2} strokeLinecap="round"/>
                     <line x1="4" y1="18" x2="12" y2="18" strokeWidth={2} strokeLinecap="round"/>
                   </svg>
-                  Depth
+                  {t('depth')}
                 </button>
               )}
             </div>
@@ -1377,11 +1383,11 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
                 <button onClick={() => selectChartSource('lp')}
                   className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all uppercase ${
                     chartSource === 'lp' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
-                  }`}>Swap</button>
+                  }`}>{t('swap')}</button>
                 <button onClick={() => selectChartSource('spot')}
                   className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all uppercase ${
                     chartSource === 'spot' ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
-                  }`}>Spot</button>
+                  }`}>{t('spot')}</button>
               </div>
             )}
 
@@ -1414,7 +1420,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
                     className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
                       depthMode === mode ? 'bg-white/[0.12] text-white' : 'text-gray-600 hover:text-gray-300'
                     }`}>
-                    {mode === 'pool' ? 'Pool' : 'Combined'}
+                    {mode === 'pool' ? t('pool') : t('combined')}
                   </button>
                 ))}
               </div>
@@ -1455,7 +1461,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
               </div>
             ) : chartLoading ? (
               <div className="flex h-full w-full items-center justify-center">
-                <LiquidLoader label="Loading chart data" />
+                <LiquidLoader label={t('loadingChartData')} />
               </div>
             ) : candles.length < 2 ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-gray-700">
@@ -1463,7 +1469,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
                 </svg>
-                <span className="text-[13px]">No chart data</span>
+                <span className="text-[13px]">{t('noChartData')}</span>
               </div>
             ) : chartView === 'candles' ? (
               <div className="absolute inset-0 p-2">
@@ -1496,7 +1502,7 @@ export default function TokenModal({ token, chain, allowAlcorTrade, onClose }: P
             {allowAlcorTrade && alcorUrl && (
               <a href={alcorUrl} target="_blank" rel="noopener noreferrer"
                 className="text-[10px] text-[#f89422] hover:underline font-medium">
-                Open on Alcor ↗
+                {t('openOnAlcor')}
               </a>
             )}
           </div>

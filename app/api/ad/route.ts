@@ -18,6 +18,7 @@ import {
   MarketingAd,
   PAYMENT_TOKENS,
   PaymentSymbol,
+  adPaymentUsd,
   adQuoteUsd,
   bookingOverlaps,
   hasExpectedPayment,
@@ -200,7 +201,7 @@ async function preparePayment(req: NextRequest) {
     const period = AD_PERIODS.find(option => option.hours === submission.hours)!
     const quotedAt = Date.now()
     const pricingState = await redis.get<AdPricingState>(AD_REDIS_KEYS.pricing)
-    const feeUsd = adQuoteUsd(period.usd, pricingState, quotedAt)
+    const feeUsd = adPaymentUsd(adQuoteUsd(period.usd, pricingState, quotedAt), submission.symbol)
     const id = crypto.randomUUID()
     const reservation: AdReservation = {
       id,

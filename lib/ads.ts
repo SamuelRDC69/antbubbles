@@ -132,6 +132,10 @@ export function adQuoteUsd(floorUsd: number, state: AdPricingState | null, now: 
   return Math.ceil(floorUsd * adDemandMultiplier(state, now) * 100) / 100
 }
 
+export function adPaymentUsd(quoteUsd: number, symbol: PaymentSymbol): number {
+  return symbol === 'WAX' ? quoteUsd : quoteUsd * 0.85
+}
+
 export function recordAdUsage(
   state: AdPricingState | null,
   hours: number,

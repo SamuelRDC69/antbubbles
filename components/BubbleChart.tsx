@@ -5,6 +5,7 @@ import { forceSimulation } from 'd3-force'
 import type { Simulation } from 'd3-force'
 import { TokenBubbleData, DisplayMode } from '@/lib/types'
 import { AD_FONTS, AdFont, AdImageMode, AdOverlayPosition, MarketingAd } from '@/lib/ads'
+import { useI18n } from '@/contexts/I18nContext'
 import {
   computeRadii,
   bubbleFillColorForMode,
@@ -403,6 +404,7 @@ export default function BubbleChart({
   ad,
   onAdvertise,
 }: Props) {
+  const { t } = useI18n()
   const canvasRef    = useRef<HTMLCanvasElement>(null)
   const simRef       = useRef<Simulation<SimNode, undefined> | null>(null)
   const nodesRef     = useRef<SimNode[]>([])
@@ -896,7 +898,7 @@ export default function BubbleChart({
           target="_blank"
           rel="noopener noreferrer sponsored"
           draggable={false}
-          aria-label={`Sponsored: ${ad.text}`}
+          aria-label={t('sponsored', { text: ad.text })}
           className={`absolute left-0 top-0 z-10 select-none overflow-hidden rounded-full will-change-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ffd700] ${
             ad.imageMode === 'background' ? 'border-[3px] border-[#ffd700] bg-[#160d00]' : ''
           }`}
@@ -935,11 +937,11 @@ export default function BubbleChart({
               </span>
             </>
           )}
-          <span className="sr-only">Open sponsored link in a new tab</span>
+          <span className="sr-only">{t('sponsoredLink')}</span>
         </a>
       )}
       {!ad && (
-        <button onClick={onAdvertise} className="sr-only">Advertise on AntBubbles</button>
+        <button onClick={onAdvertise} className="sr-only">{t('advertiseOn')}</button>
       )}
 
       {tooltip && !dragging && (
@@ -968,7 +970,7 @@ export default function BubbleChart({
           <div className="font-semibold text-[11px]" style={{ color: changeTextColor(tooltip.token.change24) }}>
             {formatChange(tooltip.token.change24)}
           </div>
-          <div className="text-gray-700 text-[10px] mt-0.5">click to open</div>
+          <div className="text-gray-700 text-[10px] mt-0.5">{t('clickToOpen')}</div>
         </div>
       )}
     </div>

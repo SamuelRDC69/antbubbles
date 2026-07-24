@@ -13,6 +13,7 @@ import StatsBar from '@/components/StatsBar'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { prefetchChart, buildDefaultChartUrl } from '@/lib/chartCache'
 import { CURRENT_RELEASE } from '@/lib/releases'
+import { useI18n } from '@/contexts/I18nContext'
 
 // Canvas and modal code stay out of the initial client bundle.
 const BubbleChart = dynamic(() => import('@/components/BubbleChart'), { ssr: false })
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export default function HomeClient({ initialTokens }: Props) {
+  const { t } = useI18n()
   const [chain,          setChain]          = useState<ChainConfig>(CHAINS[DEFAULT_CHAIN])
   const [displayMode,    setDisplayMode]    = useState<DisplayMode>({ metric: 'change', timeframe: '24h' })
   const [searchQuery,    setSearchQuery]    = useState('')
@@ -121,9 +123,9 @@ export default function HomeClient({ initialTokens }: Props) {
         <span className="font-mono font-bold uppercase tracking-wider text-[#f89422]">
           Release {String(CURRENT_RELEASE.sequence).padStart(3, '0')} · v{CURRENT_RELEASE.version}
         </span>
-        <span className="text-gray-300">{CURRENT_RELEASE.title}</span>
+        <span className="text-gray-300">{t('releaseTitle')}</span>
         <span className="text-gray-600">—</span>
-        <span className="text-gray-500">{CURRENT_RELEASE.summary}</span>
+        <span className="text-gray-500">{t('releaseSummary')}</span>
       </aside>
 
       <main className="flex-1 relative min-h-0">

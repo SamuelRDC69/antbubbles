@@ -14,6 +14,7 @@ import {
   AdReservation,
   AdSubmission,
   PaymentSymbol,
+  adPaymentUsd,
   bookingOverlaps,
   ipfsImageUrl,
   safeHttpUrl,
@@ -21,6 +22,7 @@ import {
 } from '@/lib/ads'
 import { TokenBubbleData } from '@/lib/types'
 import LiquidLoader from '@/components/LiquidLoader'
+import { useI18n } from '@/contexts/I18nContext'
 
 interface Props {
   tokens: TokenBubbleData[]
@@ -103,6 +105,7 @@ function overlayStyle(position: AdOverlayPosition): React.CSSProperties {
 }
 
 export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props) {
+  const { t } = useI18n()
   const { actor, accounts, login, switchAccount, transact } = useWallet()
   const [text, setText] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
@@ -186,6 +189,10 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
   const quoteHours = submission?.hours ?? hours
   const floorUsd = AD_PERIODS.find(period => period.hours === quoteHours)?.usd ?? 0
   const quoteUsd = pricing?.quotes.find(quote => quote.hours === quoteHours)?.usd ?? floorUsd
+  const selectedQuoteUsd = adPaymentUsd(quoteUsd, symbol)
+  const periodLabels: Record<number, string> = {
+    1: t('period1'), 6: t('period6'), 24: t('period24'), 168: t('period168'), 720: t('period720'),
+  }
   const assetQuote = (paymentSymbol: PaymentSymbol) => {
     const token = tokens.find(item => item.contract === PAYMENT_TOKENS[paymentSymbol].contract)
     const waxReference = tokens.find(item => item.system_price > 0)
@@ -193,7 +200,9 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
       ? waxReference.usd_price / waxReference.system_price
       : token?.usd_price
     try {
-      return tokenUsdPrice ? tokenQuantity(quoteUsd, tokenUsdPrice, paymentSymbol) : null
+      return tokenUsdPrice
+        ? tokenQuantity(adPaymentUsd(quoteUsd, paymentSymbol), tokenUsdPrice, paymentSymbol)
+        : null
     } catch {
       return null
     }
@@ -201,15 +210,15 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
   const quotePanel = (
     <div className="rounded-xl bg-white/[0.05] p-3 text-sm">
       <div className="flex items-center justify-between">
-        <span className="text-gray-400">Current fee</span>
-        <strong className="text-white">${quoteUsd.toFixed(2)} USD</strong>
+        <span className="text-gray-400">{t('currentFee', { symbol })}</span>
+        <strong className="text-white">${selectedQuoteUsd.toFixed(2)} USD</strong>
       </div>
       <div className="mt-1 flex items-center justify-between">
-        <span className="text-gray-500">KEK</span>
+        <span className="text-gray-500">KEK · {t('discount15')}</span>
         <span className="font-medium text-[#ffd700]">≈ {displayAsset(assetQuote('KEK'))}</span>
       </div>
       <div className="mt-1 flex items-center justify-between">
-        <span className="text-gray-500">DEAL</span>
+        <span className="text-gray-500">DEAL · {t('discount15')}</span>
         <span className="font-medium text-[#ffd700]">≈ {displayAsset(assetQuote('DEAL'))}</span>
       </div>
       <div className="mt-1 flex items-center justify-between">
@@ -217,9 +226,9 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
         <span className="font-medium text-[#ffd700]">≈ {displayAsset(assetQuote('WAX'))}</span>
       </div>
       <p className="mt-2 text-[10px] leading-relaxed text-gray-500">
-        Floor ${floorUsd.toFixed(2)} · demand {pricing?.multiplier.toFixed(2) ?? '1.00'}× as of{' '}
-        {pricing ? new Date(pricing.asOf).toLocaleTimeString() : 'loading'} · token prices as of{' '}
-        {marketDataAt ? new Date(marketDataAt).toLocaleTimeString() : 'the latest bubble snapshot'}
+        {t('floor')} ${adPaymentUsd(floorUsd, symbol).toFixed(2)} · {t('demand')} {pricing?.multiplier.toFixed(2) ?? '1.00'}× ·{' '}
+        {pricing ? new Date(pricing.asOf).toLocaleTimeString() : t('loadingChart')} · {t('tokenPriceTime')}{' '}
+        {marketDataAt ? new Date(marketDataAt).toLocaleTimeString() : t('latestSnapshot')}
       </p>
     </div>
   )
@@ -431,56 +440,56 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
       <div role="dialog" aria-modal="true" aria-labelledby="advertise-title"
         className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#0a0f14] p-5 shadow-2xl">
         <div className="mb-5 flex items-center justify-between">
-          <h2 id="advertise-title" className="font-bold text-white">Advertise on AntBubbles</h2>
-          <button onClick={onClose} disabled={busy} aria-label="Close" className="text-gray-500 hover:text-white">×</button>
+          <h2 id="advertise-title" className="font-bold text-white">{t('advertiseTitle')}</h2>
+          <button onClick={onClose} disabled={busy} aria-label={t('close')} className="text-gray-500 hover:text-white">×</button>
         </div>
 
         {!submission ? (
           <div className="space-y-4">
             <label className="block text-xs font-semibold text-gray-400">
-              Bubble text
+              {t('bubbleText')}
               <input autoFocus value={text} onChange={event => setText(event.target.value)} maxLength={30} required
                 className="mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-white outline-none focus:border-[#ffd700]/50" />
             </label>
             <label className="block text-xs font-semibold text-gray-400">
-              Destination
+              {t('destination')}
               <input type="url" value={linkUrl} onChange={event => setLinkUrl(event.target.value)}
                 placeholder="https://your-project.com" required
                 className="mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-white outline-none focus:border-[#ffd700]/50" />
             </label>
             <label className="block text-xs font-semibold text-gray-400">
-              Creative background
+              {t('creativeBackground')}
               <select value={imageMode} onChange={event => setImageMode(event.target.value as AdImageMode)}
                 className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#111820] px-3 py-2 text-white">
-                <option value="none">No background</option>
-                <option value="background">GIF, meme, or image</option>
+                <option value="none">{t('noBackground')}</option>
+                <option value="background">{t('gifImage')}</option>
               </select>
             </label>
             {imageMode === 'background' && (
               <div className="space-y-3">
                 <label className="block text-xs font-semibold text-gray-400">
-                  GIF, meme, or image URL
+                  {t('imageUrl')}
                   <input value={ipfsUrl} onChange={event => setIpfsUrl(event.target.value)}
                     placeholder="https://…/meme.gif or ipfs://bafy…"
                     className="mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-white outline-none focus:border-[#ffd700]/50" />
                   <span className="mt-1.5 block font-normal leading-relaxed text-gray-500">
-                    GIF, PNG, WebP, JPEG, and IPFS links work. Square artwork reads best; the bubble crops the edges.
+                    {t('imageHelp')}
                   </span>
                 </label>
                 <section aria-labelledby="gif-picker-title" className="rounded-xl border border-white/10 bg-[#080c10] p-3">
-                  <h3 id="gif-picker-title" className="mb-2 text-xs font-semibold text-gray-300">Find a GIF</h3>
+                  <h3 id="gif-picker-title" className="mb-2 text-xs font-semibold text-gray-300">{t('findGif')}</h3>
                   {giphyFetch ? (
                     <div className="space-y-2">
                       <div className="flex gap-2">
                         <input value={gifSearch} onChange={event => setGifSearch(event.target.value)}
                           onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void searchGifs(gifSearch.trim()) } }}
-                          placeholder="Search GIPHY" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none focus:border-[#ffd700]/50" />
+                          placeholder={t('searchGiphy')} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none focus:border-[#ffd700]/50" />
                         <button type="button" onClick={() => void searchGifs(gifSearch.trim())} disabled={gifLoading}
                           className="rounded-lg bg-[#ffd700] px-3 text-sm font-bold text-black disabled:opacity-40">
-                          {gifSearch.trim() ? 'Search' : 'Trending'}
+                          {gifSearch.trim() ? t('search') : t('trending')}
                         </button>
                       </div>
-                      {gifLoading && <p className="text-center text-xs text-gray-500">Loading GIFs…</p>}
+                      {gifLoading && <p className="text-center text-xs text-gray-500">{t('loadingGifs')}</p>}
                       {gifError && <p role="alert" className="text-xs text-red-300">{gifError}</p>}
                       {gifResults.length > 0 && !gifLoading && (
                         <div className="grid grid-cols-3 gap-1.5">
@@ -493,7 +502,7 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                           ))}
                         </div>
                       )}
-                      <p className="text-center text-[10px] font-semibold text-gray-500">Powered by GIPHY</p>
+                      <p className="text-center text-[10px] font-semibold text-gray-500">{t('poweredByGiphy')}</p>
                     </div>
                   ) : (
                     <p className="text-[11px] leading-relaxed text-gray-500">GIF search needs <code className="text-gray-300">NEXT_PUBLIC_GIPHY_API_KEY</code>; you can still paste any GIF URL above.</p>
@@ -502,16 +511,16 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
               </div>
             )}
             <label className="block text-xs font-semibold text-gray-400">
-              Token logo overlay
+              {t('tokenLogo')}
               <select value={tokenId} onChange={event => setTokenId(event.target.value)}
                 className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#111820] px-3 py-2 text-white">
-                <option value="">No token logo</option>
+                <option value="">{t('noTokenLogo')}</option>
                 {tokens.map(token => <option key={token.id} value={token.id}>{token.symbol} · {token.contract}</option>)}
               </select>
             </label>
             <div className="grid grid-cols-[1fr_auto] gap-3">
               <label className="text-xs font-semibold text-gray-400">
-                Text font
+                {t('textFont')}
                 <select value={font} onChange={event => setFont(event.target.value as AdFont)}
                   className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#111820] px-3 py-2 text-white">
                   {Object.entries(AD_FONTS).map(([value, option]) => (
@@ -520,14 +529,14 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                 </select>
               </label>
               <label className="text-xs font-semibold text-gray-400">
-                Text colour
+                {t('textColour')}
                 <input type="color" value={textColor} onChange={event => setTextColor(event.target.value)}
                   className="mt-1.5 block h-[38px] w-14 cursor-pointer rounded-lg border border-white/10 bg-[#111820] p-1" />
               </label>
             </div>
             <div className={`grid gap-3 ${previewLogo ? 'grid-cols-2' : 'grid-cols-1'}`}>
-              <OverlayPositionPicker label="Text placement" value={textPosition} onChange={setTextPosition} />
-              {previewLogo && <OverlayPositionPicker label="Logo placement" value={logoPosition} onChange={setLogoPosition} />}
+              <OverlayPositionPicker label={t('textPlacement')} value={textPosition} onChange={setTextPosition} />
+              {previewLogo && <OverlayPositionPicker label={t('logoPlacement')} value={logoPosition} onChange={setLogoPosition} />}
             </div>
             <div className="flex items-center gap-4 rounded-xl bg-white/[0.05] p-3">
               <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full bg-[#291900] ring-1 ring-[#ffd700]">
@@ -542,25 +551,28 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                 )}
                 <span className="absolute w-[68%] text-center text-xs font-bold leading-tight [text-shadow:0_1px_3px_#000]"
                   style={{ ...overlayStyle(textPosition), color: textColor, fontFamily: AD_FONTS[font].canvas }}>
-                  {text || 'Your text'}
+                  {text || t('yourText')}
                 </span>
               </div>
-              <p className="text-xs leading-relaxed text-gray-400">Preview: your GIF or image fills the bubble; text and token logo use the placements above.</p>
+              <p className="text-xs leading-relaxed text-gray-400">{t('previewHelp')}</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <label className="text-xs font-semibold text-gray-400">
-                Duration
+                {t('duration')}
                 <select value={hours} onChange={event => setHours(Number(event.target.value))}
                   className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#111820] px-3 py-2 text-white">
                   {AD_PERIODS.map(period => {
-                    const current = pricing?.quotes.find(quote => quote.hours === period.hours)?.usd ?? period.usd
+                    const current = adPaymentUsd(
+                      pricing?.quotes.find(quote => quote.hours === period.hours)?.usd ?? period.usd,
+                      symbol,
+                    )
                     const discount = Math.round((1 - period.usd / (AD_PERIODS[0].usd * period.hours)) * 100)
-                    return <option key={period.hours} value={period.hours}>{period.label} — ${current.toFixed(2)} · {discount}% discount</option>
+                    return <option key={period.hours} value={period.hours}>{periodLabels[period.hours]} — ${current.toFixed(2)} · {discount}%</option>
                   })}
                 </select>
               </label>
               <label className="text-xs font-semibold text-gray-400">
-                Pay with
+                {t('payWith')}
                 <select value={symbol} onChange={event => setSymbol(event.target.value as PaymentSymbol)}
                   className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#111820] px-3 py-2 text-white">
                   <option value="KEK">KEK · waxpepetoken</option>
@@ -571,30 +583,30 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
             </div>
             <section aria-labelledby="booking-calendar-title">
               <div className="flex items-center justify-between">
-                <h3 id="booking-calendar-title" className="text-xs font-semibold text-gray-400">Booking calendar</h3>
+                <h3 id="booking-calendar-title" className="text-xs font-semibold text-gray-400">{t('bookingCalendar')}</h3>
                 <div className="flex rounded-lg bg-white/[0.06] p-0.5">
                   {(['week', 'month'] as const).map(view => (
                     <button key={view} type="button" onClick={() => setCalendarView(view)}
                       className={`rounded-md px-2.5 py-1 text-[11px] font-semibold capitalize ${
                         calendarView === view ? 'bg-[#ffd700] text-black' : 'text-gray-400 hover:text-white'
                       }`}>
-                      {view}
+                      {view === 'week' ? t('week') : t('month')}
                     </button>
                   ))}
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-gray-400">
-                <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-green-500/70" />Free</span>
-                <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-red-500/70" />Occupied</span>
-                <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-400/70" />Pending confirmation</span>
+                <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-green-500/70" />{t('free')}</span>
+                <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-red-500/70" />{t('occupied')}</span>
+                <span><i className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-400/70" />{t('pendingConfirmation')}</span>
               </div>
               <div className="mt-2 max-h-72 overflow-auto rounded-lg border border-white/10 bg-[#080c10]">
                 {!visibleCalendar ? (
                   <div className="flex items-center justify-center px-3 py-8">
-                    <LiquidLoader label="Loading hourly availability" />
+                    <LiquidLoader label={t('loadingAvailability')} />
                   </div>
                 ) : visibleCalendar.failed ? (
-                  <p className="px-3 py-8 text-center text-xs text-red-400">Could not load booking availability.</p>
+                  <p className="px-3 py-8 text-center text-xs text-red-400">{t('availabilityFailed')}</p>
                 ) : (
                   <div className="flex min-w-max">
                     <div className="sticky left-0 z-20 w-11 shrink-0 bg-[#080c10] pt-9">
@@ -642,9 +654,9 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
               <p aria-live="polite" className={`mt-2 text-xs ${
                 slotAvailable === true ? 'text-green-400' : slotAvailable === false ? 'text-red-400' : 'text-gray-500'
               }`}>
-                {startTime ? new Date(bookingStartAt).toLocaleString() : 'Choose a free hour'} ·{' '}
-                {slotAvailable === true ? `${hours}-hour booking available` :
-                  slotAvailable === false ? `${hours}-hour booking overlaps another slot` : 'checking full duration…'}
+                {startTime ? new Date(bookingStartAt).toLocaleString() : t('chooseHour')} ·{' '}
+                {slotAvailable === true ? t('bookingAvailable', { hours }) :
+                  slotAvailable === false ? t('bookingOverlap', { hours }) : t('checkingDuration')}
               </p>
             </section>
             {quotePanel}
@@ -652,10 +664,10 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
             <button onClick={submitForReview} disabled={busy || !text.trim() || !linkUrl.trim() ||
               slotAvailable !== true || (imageMode === 'background' && !previewBackground)}
               className="w-full rounded-xl bg-[#ffd700] py-3 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40">
-              {busy ? 'Submitting…' : actor ? 'Continue to payment' : 'Connect wallet'}
+              {busy ? t('submitting') : actor ? t('continuePayment') : t('connectWallet')}
             </button>
             <p className="text-center text-[11px] text-gray-500">
-              Payment is taken before owner review and does not guarantee approval. USD pricing converts to KEK, DEAL, or WAX at checkout using the live Alcor price.
+              {t('paymentNotice')}
             </p>
           </div>
         ) : (
@@ -666,7 +678,7 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                 <span className={`text-xs font-semibold ${
                   submission.status === 'approved' ? 'text-green-400' :
                   submission.status === 'rejected' ? 'text-red-400' : 'text-amber-400'
-                }`}>{submission.status === 'awaiting_payment' ? 'awaiting payment' : submission.status}</span>
+                }`}>{submission.status === 'awaiting_payment' ? t('awaitingPayment') : submission.status}</span>
               </div>
               <a href={submission.linkUrl} target="_blank" rel="noopener noreferrer"
                 className="mt-2 block truncate text-xs text-[#f89422] hover:underline">{submission.linkUrl} ↗</a>
@@ -679,18 +691,18 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
               <>
                 {quotePanel}
                 <p className="text-sm text-gray-300">
-                  Pay now to send this booked slot to owner review. It displays only if the owner approves it.
+                  {t('payReview')}
                 </p>
                 {actor && !pendingPayment && !busy && (
                   <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Paying from</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">{t('payingFrom')}</p>
                         <p className="truncate text-sm font-semibold text-white">{actor}</p>
                       </div>
                       <button onClick={() => setAccountPickerOpen(open => !open)}
                         className="shrink-0 text-xs font-semibold text-[#f89422] hover:text-[#ffad4d]">
-                        Switch wallet
+                        {t('switchWallet')}
                       </button>
                     </div>
                     {accountPickerOpen && (
@@ -698,11 +710,11 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                         {accounts.filter(account => account !== actor).map(account => (
                           <button key={account} onClick={() => void selectPaymentAccount(account)}
                             className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-xs text-gray-300 hover:bg-white/[0.07] hover:text-white">
-                            <span className="truncate">{account}</span><span className="text-[#f89422]">Use</span>
+                            <span className="truncate">{account}</span><span className="text-[#f89422]">{t('use')}</span>
                           </button>
                         ))}
                         <button onClick={() => void selectPaymentAccount()} className="w-full rounded-lg px-2 py-2 text-left text-xs font-semibold text-[#f89422] hover:bg-white/[0.07]">
-                          Connect another wallet
+                          {t('connectAnotherWallet')}
                         </button>
                       </div>
                     )}
@@ -711,35 +723,35 @@ export default function AdvertiseModal({ tokens, marketDataAt, onClose }: Props)
                 {error && <p role="alert" className="rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</p>}
                 <button onClick={pay} disabled={busy}
                   className="w-full rounded-xl bg-[#ffd700] py-3 text-sm font-bold text-black disabled:opacity-40">
-                  {busy ? 'Waiting…' : pendingPayment ? 'Retry payment verification' : actor ? `Pay with ${submission.symbol}` : 'Connect wallet'}
+                  {busy ? t('waiting') : pendingPayment ? t('retryVerification') : actor ? `${t('payWith')} ${submission.symbol}` : t('connectWallet')}
                 </button>
                 {!pendingPayment && (
                   <button onClick={startOver} disabled={busy}
                     className="w-full rounded-xl border border-white/15 py-3 text-sm font-semibold text-white disabled:opacity-40">
-                    Back to edit
+                    {t('startOver')}
                   </button>
                 )}
               </>
             )}
             {submission.status === 'pending' && (
-              <p className="text-sm text-green-300">Payment confirmed and slot reserved. Awaiting owner review; this window checks automatically.</p>
+              <p className="text-sm text-green-300">{t('paymentConfirmed')}</p>
             )}
             {submission.status === 'rejected' && (
               <>
-                <p className="text-sm text-red-300">This paid creative or destination was rejected. Contact the app owner about a refund.</p>
+                <p className="text-sm text-red-300">{t('rejected')}</p>
                 <button onClick={startOver} className="w-full rounded-xl border border-white/15 py-3 text-sm font-semibold text-white">
-                  Create another ad
+                  {t('startOver')}
                 </button>
               </>
             )}
             {submission.status === 'approved' && (
               <>
                 <p className="text-sm text-green-300">
-                  Approved and scheduled for the booked hourly slot.
+                  {t('approvedScheduled')}
                 </p>
                 <button onClick={onClose}
                   className="w-full rounded-xl bg-[#ffd700] py-3 text-sm font-bold text-black">
-                  Done
+                  {t('close')}
                 </button>
               </>
             )}

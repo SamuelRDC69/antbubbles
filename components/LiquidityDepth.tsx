@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { formatPrice } from '@/lib/bubbleUtils'
 import LiquidLoader from '@/components/LiquidLoader'
+import { useI18n } from '@/contexts/I18nContext'
 
 interface DepthPool {
   id: number
@@ -42,6 +43,7 @@ export default function LiquidityDepth({
   mode = 'single',
   pools = [],
 }: Props) {
+  const { t } = useI18n()
   const [data, setData] = useState<{ bands: DepthBand[]; poolCount: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -88,7 +90,7 @@ export default function LiquidityDepth({
   if (loading) {
     return (
       <div className="flex h-full w-full items-center justify-center">
-        <LiquidLoader label="Loading market depth" />
+        <LiquidLoader label={t('loadingDepth')} />
       </div>
     )
   }
@@ -97,30 +99,30 @@ export default function LiquidityDepth({
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-gray-600">
         <span className="text-2xl" aria-hidden>∅</span>
-        <span className="text-[13px]">No executable liquidity found</span>
+        <span className="text-[13px]">{t('noLiquidity')}</span>
       </div>
     )
   }
 
   return (
-    <section className="flex h-full min-h-0 w-full flex-col" aria-label={`${tokenSymbol} executable market depth`}>
+    <section className="flex h-full min-h-0 w-full flex-col" aria-label={`${tokenSymbol} ${t('executableDepth')}`}>
       <header className="flex items-start justify-between gap-4 pb-4">
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-600">Executable depth</div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-600">{t('executableDepth')}</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="font-mono text-lg font-semibold text-white">{formatPrice(currentUsdPrice)}</span>
             <span className="text-[11px] text-gray-600">{tokenSymbol} spot</span>
           </div>
         </div>
         <div className="rounded-full border border-white/[0.08] bg-white/[0.035] px-2.5 py-1 text-[10px] font-semibold text-gray-500">
-          {data.poolCount} {data.poolCount === 1 ? 'pool' : 'pools'} · SDK simulated
+          {data.poolCount} {data.poolCount === 1 ? t('pool') : t('pools')} · {t('simulated')}
         </div>
       </header>
 
       <div className="grid grid-cols-[1fr_54px_1fr] items-end gap-x-3 border-b border-white/[0.06] pb-2 text-[10px] font-bold uppercase tracking-[0.14em]">
-        <div className="text-right text-rose-400/80">Sell {tokenSymbol}</div>
-        <div className="text-center text-gray-700">Impact</div>
-        <div className="text-emerald-400/80">Buy {tokenSymbol}</div>
+        <div className="text-right text-rose-400/80">{t('sell')} {tokenSymbol}</div>
+        <div className="text-center text-gray-700">{t('impact')}</div>
+        <div className="text-emerald-400/80">{t('buy')} {tokenSymbol}</div>
       </div>
 
       <div className="flex flex-1 flex-col justify-evenly py-2">
